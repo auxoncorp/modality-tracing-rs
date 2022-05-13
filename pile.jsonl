@@ -1,0 +1,7 @@
+{"message":{"NewSpan":{"metadata":{"name":"outer_span","target":"tracing_playground","level":"TRACE","module_path":"tracing_playground","file":"src/main.rs","line":35,"fields":[],"is_span":true,"is_event":false},"parent":null,"is_root":false}},"tick":0}
+{"message":{"Enter":{"id":1}},"tick":92}
+{"message":{"NewSpan":{"metadata":{"name":"my span","target":"tracing_playground::do_thing","level":"TRACE","module_path":"tracing_playground::do_thing","file":"src/main.rs","line":75,"fields":[],"is_span":true,"is_event":false},"parent":null,"is_root":false}},"tick":124}
+{"message":{"Enter":{"id":2}},"tick":191}
+{"message":{"Event":{"fields":{"message":{"Debug":"something has happened!"}},"metadata":{"name":"event src/main.rs:77","target":"tracing_playground::do_thing","level":"INFO","module_path":"tracing_playground::do_thing","file":"src/main.rs","line":77,"fields":["message"],"is_span":false,"is_event":true},"parent":null}},"tick":221}
+{"message":{"Exit":{"id":2}},"tick":342}
+{"message":{"Exit":{"id":1}},"tick":450}

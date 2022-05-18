@@ -22,7 +22,8 @@ impl TracingModalityLense {
             .await
             .map_err(|e| println!("on IngestClient::new {}", e))?;
 
-        let auth_key = std::env::var("MODALITY_LICENSE_KEY").unwrap();
+        let auth_key =
+            std::env::var("MODALITY_LICENSE_KEY").expect("find modality license env var");
         let client = unauth_client
             .authenticate(auth_key.as_bytes().to_vec())
             .await
@@ -42,13 +43,9 @@ impl TracingModalityLense {
     }
 
     pub async fn handle_packet<'a>(&mut self, pkt: Packet<'static>) -> Result<(), ()> {
-        //println!("got event at tick {}: {:?}", pkt.tick, pkt.message);
-
         match pkt.message {
             TracingWire::NewSpan(span) => {
                 let id = self.spans.len() + 1;
-
-                println!("{:?}", span);
 
                 let mut packed_attrs = Vec::new();
 
@@ -60,13 +57,6 @@ impl TracingModalityLense {
                 ));
 
                 packed_attrs.push((
-                    self.get_or_create_event_attr_key("event.foo".to_string())
-                        .await
-                        .unwrap(),
-                    AttrVal::String("bar".to_string()),
-                ));
-
-                packed_attrs.push((
                     self.get_or_create_event_attr_key("event.span-id".to_string())
                         .await
                         .unwrap(),
@@ -74,21 +64,22 @@ impl TracingModalityLense {
                 ));
 
                 packed_attrs.push((
-                    self.get_or_create_event_attr_key("event.metadata.name".to_string())
+                    self.get_or_create_event_attr_key("event.name".to_string())
                         .await
                         .unwrap(),
                     AttrVal::String(span.metadata.name.to_string()),
                 ));
 
-                packed_attrs.push((
-                    self.get_or_create_event_attr_key("event.metadata.target".to_string())
-                        .await
-                        .unwrap(),
-                    AttrVal::String(span.metadata.target.to_string()),
-                ));
+                // This duplicates the data from `source_file` and `source_line`.
+                //packed_attrs.push((
+                //    self.get_or_create_event_attr_key("event.metadata.target".to_string())
+                //        .await
+                //        .unwrap(),
+                //    AttrVal::String(span.metadata.target.to_string()),
+                //));
 
                 packed_attrs.push((
-                    self.get_or_create_event_attr_key("event.metadata.level".to_string())
+                    self.get_or_create_event_attr_key("event.severity".to_string())
                         .await
                         .unwrap(),
                     AttrVal::String(format!("{:?}", span.metadata.level)),
@@ -96,7 +87,7 @@ impl TracingModalityLense {
 
                 if let Some(ref module_path) = span.metadata.module_path {
                     packed_attrs.push((
-                        self.get_or_create_event_attr_key("event.metadata.module_path".to_string())
+                        self.get_or_create_event_attr_key("event.module_path".to_string())
                             .await
                             .unwrap(),
                         AttrVal::String(module_path.to_string()),
@@ -105,7 +96,7 @@ impl TracingModalityLense {
 
                 if let Some(ref file) = span.metadata.file {
                     packed_attrs.push((
-                        self.get_or_create_event_attr_key("event.metadata.file".to_string())
+                        self.get_or_create_event_attr_key("event.source_file".to_string())
                             .await
                             .unwrap(),
                         AttrVal::String(file.to_string()),
@@ -114,26 +105,27 @@ impl TracingModalityLense {
 
                 if let Some(ref line) = span.metadata.line {
                     packed_attrs.push((
-                        self.get_or_create_event_attr_key("event.metadata.line".to_string())
+                        self.get_or_create_event_attr_key("event.source_line".to_string())
                             .await
                             .unwrap(),
                         AttrVal::String(line.to_string()),
                     ));
                 }
 
-                packed_attrs.push((
-                    self.get_or_create_event_attr_key("event.metadata.is_span".to_string())
-                        .await
-                        .unwrap(),
-                    AttrVal::Bool(span.metadata.is_span),
-                ));
+                // These 2 duplicate the `kind` field
+                //packed_attrs.push((
+                //    self.get_or_create_event_attr_key("event.metadata.is_span".to_string())
+                //        .await
+                //        .unwrap(),
+                //    AttrVal::Bool(span.metadata.is_span),
+                //));
 
-                packed_attrs.push((
-                    self.get_or_create_event_attr_key("event.metadata.is_event".to_string())
-                        .await
-                        .unwrap(),
-                    AttrVal::Bool(span.metadata.is_event),
-                ));
+                //packed_attrs.push((
+                //    self.get_or_create_event_attr_key("event.metadata.is_event".to_string())
+                //        .await
+                //        .unwrap(),
+                //    AttrVal::Bool(span.metadata.is_event),
+                //));
 
                 match &span.metadata.fields {
                     SerializeFieldSet::Ser(_event) => {
@@ -143,7 +135,7 @@ impl TracingModalityLense {
                         //TODO: Indexes are a gross key. Is this the best option?
                         for (idx, value) in record_map.iter().enumerate() {
                             packed_attrs.push((
-                                self.get_or_create_event_attr_key(format!("event.fields.{}", idx))
+                                self.get_or_create_event_attr_key(format!("event.payload.{}", idx))
                                     .await
                                     .unwrap(),
                                 AttrVal::String(value.to_string()),
@@ -167,78 +159,8 @@ impl TracingModalityLense {
                 todo!("dunno what these are")
             }
             TracingWire::Event(ev) => {
-                println!("Got event: {}", ev.metadata.name.as_str());
-
                 let mut packed_attrs = Vec::new();
-
-                packed_attrs.push((
-                    self.get_or_create_event_attr_key("event.kind".to_string())
-                        .await
-                        .unwrap(),
-                    AttrVal::String("event".to_string()),
-                ));
-
-                packed_attrs.push((
-                    self.get_or_create_event_attr_key("event.metadata.name".to_string())
-                        .await
-                        .unwrap(),
-                    AttrVal::String(ev.metadata.name.to_string()),
-                ));
-
-                packed_attrs.push((
-                    self.get_or_create_event_attr_key("event.metadata.target".to_string())
-                        .await
-                        .unwrap(),
-                    AttrVal::String(ev.metadata.target.to_string()),
-                ));
-
-                packed_attrs.push((
-                    self.get_or_create_event_attr_key("event.metadata.level".to_string())
-                        .await
-                        .unwrap(),
-                    AttrVal::String(format!("{:?}", ev.metadata.level)),
-                ));
-
-                if let Some(module_path) = ev.metadata.module_path {
-                    packed_attrs.push((
-                        self.get_or_create_event_attr_key("event.metadata.module_path".to_string())
-                            .await
-                            .unwrap(),
-                        AttrVal::String(module_path.to_string()),
-                    ));
-                }
-
-                if let Some(file) = ev.metadata.file {
-                    packed_attrs.push((
-                        self.get_or_create_event_attr_key("event.metadata.file".to_string())
-                            .await
-                            .unwrap(),
-                        AttrVal::String(file.to_string()),
-                    ));
-                }
-
-                if let Some(line) = ev.metadata.line {
-                    packed_attrs.push((
-                        self.get_or_create_event_attr_key("event.metadata.line".to_string())
-                            .await
-                            .unwrap(),
-                        AttrVal::String(line.to_string()),
-                    ));
-                }
-
-                packed_attrs.push((
-                    self.get_or_create_event_attr_key("event.metadata.is_span".to_string())
-                        .await
-                        .unwrap(),
-                    AttrVal::Bool(ev.metadata.is_span),
-                ));
-
-                packed_attrs.push((
-                    self.get_or_create_event_attr_key("event.metadata.is_event".to_string())
-                        .await
-                        .unwrap(),
-                    AttrVal::Bool(ev.metadata.is_event),
-                ));
+                let mut message = None;
 
                 match ev.fields {
                     SerializeRecordFields::Ser(_event) => {
@@ -261,9 +183,16 @@ impl TracingModalityLense {
                                 _ => continue,
                             };
 
+                            if name.as_str() == "message" {
+                                if let AttrVal::String(s) = attrval {
+                                    message = Some(s);
+                                    continue;
+                                }
+                            }
+
                             packed_attrs.push((
                                 self.get_or_create_event_attr_key(format!(
-                                    "event.record.{}",
+                                    "event.payload.{}",
                                     name.as_str()
                                 ))
                                 .await
@@ -274,17 +203,84 @@ impl TracingModalityLense {
                     }
                 }
 
+                packed_attrs.push((
+                    self.get_or_create_event_attr_key("event.kind".to_string())
+                        .await
+                        .unwrap(),
+                    AttrVal::String("event".to_string()),
+                ));
+
+                let name = message.unwrap_or(ev.metadata.name.to_string());
+                packed_attrs.push((
+                    self.get_or_create_event_attr_key("event.name".to_string())
+                        .await
+                        .unwrap(),
+                    AttrVal::String(name),
+                ));
+
+                // This duplicates the data from `source_file` and `source_line`.
+                //packed_attrs.push((
+                //    self.get_or_create_event_attr_key("event.metadata.target".to_string())
+                //        .await
+                //        .unwrap(),
+                //    AttrVal::String(ev.metadata.target.to_string()),
+                //));
+
+                packed_attrs.push((
+                    self.get_or_create_event_attr_key("event.severity".to_string())
+                        .await
+                        .unwrap(),
+                    AttrVal::String(format!("{:?}", ev.metadata.level)),
+                ));
+
+                if let Some(module_path) = ev.metadata.module_path {
+                    packed_attrs.push((
+                        self.get_or_create_event_attr_key("event.module_path".to_string())
+                            .await
+                            .unwrap(),
+                        AttrVal::String(module_path.to_string()),
+                    ));
+                }
+
+                if let Some(file) = ev.metadata.file {
+                    packed_attrs.push((
+                        self.get_or_create_event_attr_key("event.source_file".to_string())
+                            .await
+                            .unwrap(),
+                        AttrVal::String(file.to_string()),
+                    ));
+                }
+
+                if let Some(line) = ev.metadata.line {
+                    packed_attrs.push((
+                        self.get_or_create_event_attr_key("event.source_line".to_string())
+                            .await
+                            .unwrap(),
+                        AttrVal::String(line.to_string()),
+                    ));
+                }
+
+                // These 2 duplicate the `kind` field
+                //packed_attrs.push((
+                //    self.get_or_create_event_attr_key("event.metadata.is_span".to_string())
+                //        .await
+                //        .unwrap(),
+                //    AttrVal::Bool(ev.metadata.is_span),
+                //));
+                //
+                //packed_attrs.push((
+                //    self.get_or_create_event_attr_key("event.metadata.is_event".to_string())
+                //        .await
+                //        .unwrap(),
+                //    AttrVal::Bool(ev.metadata.is_event),
+                //));
+
                 self.client
                     .event(pkt.tick.into(), packed_attrs)
                     .await
                     .unwrap();
             }
             TracingWire::Enter(SerializeId { id }) => {
-                let span = &self.spans[usize::try_from(u64::from(id))
-                    .expect("number of spans fits in usize counter")
-                    - 1];
-
-                println!("Entering Span: {}", span.metadata.name.as_str());
                 let mut packed_attrs = Vec::new();
 
                 packed_attrs.push((
@@ -307,11 +303,6 @@ impl TracingModalityLense {
                     .unwrap();
             }
             TracingWire::Exit(SerializeId { id }) => {
-                let span = &self.spans[usize::try_from(u64::from(id))
-                    .expect("number of spans fits in usize counter")
-                    - 1];
-
-                println!("Exiting Span: {}", span.metadata.name.as_str());
                 let mut packed_attrs = Vec::new();
 
                 packed_attrs.push((

@@ -1,5 +1,5 @@
 use std::io::Result;
-use tracing_modality_lense::TracingModalityLense;
+use tracing_serde_modality_ingest::TracingModalityLense;
 
 #[tokio::main]
 async fn main() -> Result<()> {

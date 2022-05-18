@@ -1,0 +1,15 @@
+[package]
+name = "tracing-modality"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+serde_json = "1"
+tokio = "1"
+tracing-serde-modality-ingest = { "path" = "../tracing-serde-modality-ingest" }
+tracing-serde-subscriber = { "path" = "../../tracing-playground/crates/tracing-serde-subscriber" }
+tracing-subscriber = { "path" = "../../tracing-playground/tracing/tracing-subscriber" }
+tracing-core = { "path" = "../../tracing-playground/tracing/tracing-core" }
+tracing = { "path" = "../../tracing-playground/tracing/tracing" }

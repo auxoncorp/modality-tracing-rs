@@ -2,13 +2,11 @@ use tracing::{debug, error, event, info, span, trace, warn, Level};
 use tracing_modality::TracingModality;
 
 fn main() {
-    let t = TracingModality::init();
+    TracingModality::init();
 
     let span = span!(Level::TRACE, "outer_span");
     let _span = span.enter();
     do_thing::doit();
-
-    t.exit();
 }
 
 pub mod do_thing {

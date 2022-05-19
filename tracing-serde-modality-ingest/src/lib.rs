@@ -4,8 +4,7 @@ use modality_ingest_protocol::{
 };
 use std::collections::HashMap;
 use tracing_serde::{
-    DebugRecord, SerializeAttributes, SerializeFieldSet, SerializeId, SerializeRecordFields,
-    SerializeValue,
+    DebugRecord, SerializeFieldSet, SerializeId, SerializeRecordFields, SerializeValue,
 };
 use tracing_serde_wire::{Packet, TWOther, TracingWire};
 
@@ -13,7 +12,7 @@ pub struct TracingModalityLense {
     client: IngestClient<BoundTimelineState>,
     event_keys: HashMap<String, EventAttrKey>,
     timeline_keys: HashMap<String, TimelineAttrKey>,
-    spans: Vec<SerializeAttributes<'static>>,
+    spans: u64,
 }
 
 impl TracingModalityLense {
@@ -38,14 +37,15 @@ impl TracingModalityLense {
             client,
             event_keys: HashMap::new(),
             timeline_keys: HashMap::new(),
-            spans: Vec::new(),
+            spans: 0,
         })
     }
 
-    pub async fn handle_packet<'a>(&mut self, pkt: Packet<'static>) -> Result<(), ()> {
+    pub async fn handle_packet<'a>(&mut self, pkt: Packet<'_>) -> Result<(), ()> {
         match pkt.message {
             TracingWire::NewSpan(span) => {
-                let id = self.spans.len() + 1;
+                self.spans += 1;
+                let id = self.spans;
 
                 let mut packed_attrs = Vec::new();
 
@@ -148,9 +148,6 @@ impl TracingModalityLense {
                     .event(pkt.tick.into(), packed_attrs)
                     .await
                     .unwrap();
-
-                //// save locally for count
-                self.spans.push(span);
             }
             TracingWire::Record { .. } => {
                 todo!("dunno what these are")
@@ -210,7 +207,7 @@ impl TracingModalityLense {
                     AttrVal::String("event".to_string()),
                 ));
 
-                let name = message.unwrap_or(ev.metadata.name.to_string());
+                let name = message.unwrap_or_else(|| ev.metadata.name.to_string());
                 packed_attrs.push((
                     self.get_or_create_event_attr_key("event.name".to_string())
                         .await

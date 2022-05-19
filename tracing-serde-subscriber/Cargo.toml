@@ -1,0 +1,23 @@
+[package]
+name = "tracing-serde-subscriber"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies.tracing-serde-wire]
+path = "./../../tracing-playground/crates/tracing-serde-wire"
+
+[dependencies.tracing-core]
+# git = "https://github.com/tokio-rs/tracing/"
+# version = "0.2.0"
+# branch = "master"
+path = "./../../tracing-playground/tracing/tracing-core"
+
+[dependencies.tracing-serde]
+# git = "https://github.com/tokio-rs/tracing/"
+# version = "0.2.0"
+# branch = "master"
+path = "./../../tracing-playground/tracing/tracing-serde"

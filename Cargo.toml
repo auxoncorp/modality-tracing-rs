@@ -3,4 +3,5 @@
 members = [
     "tracing-modality",
     "tracing-serde-modality-ingest",
+    "tracing-serde-subscriber",
 ]

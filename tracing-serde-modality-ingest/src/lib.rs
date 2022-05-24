@@ -1,3 +1,5 @@
+pub mod options;
+
 use modality_ingest_protocol::{
     client::{BoundTimelineState, IngestClient},
     types::{AttrVal, BigInt, EventAttrKey, TimelineAttrKey, TimelineId},
@@ -8,6 +10,8 @@ use tracing_serde::{
 };
 use tracing_serde_wire::{Packet, TWOther, TracingWire};
 
+pub use options::Options;
+
 pub struct TracingModalityLense {
     client: IngestClient<BoundTimelineState>,
     event_keys: HashMap<String, EventAttrKey>,
@@ -16,13 +20,20 @@ pub struct TracingModalityLense {
 }
 
 impl TracingModalityLense {
-    pub async fn connect() -> Result<Self, ()> {
-        let unauth_client = IngestClient::new("127.0.0.1:14182".parse().unwrap())
-            .await
-            .map_err(|e| println!("on IngestClient::new {}", e))?;
+    pub async fn connect() -> Result<Self, String> {
+        let opt = Options::default();
 
-        let auth_key =
-            std::env::var("MODALITY_LICENSE_KEY").expect("find modality license env var");
+        Self::connect_with_options(opt).await
+    }
+
+    pub async fn connect_with_options(options: Options) -> Result<Self, String> {
+        let unauth_client = IngestClient::new(options.server_addr)
+            .await
+            .map_err(|e| format!("on IngestClient::new {}", e))?;
+
+        let auth_key = options
+            .auth
+            .ok_or_else(|| "auth requred, specify as option or env var".to_string())?;
         let client = unauth_client
             .authenticate(auth_key.as_bytes().to_vec())
             .await
@@ -33,12 +44,27 @@ impl TracingModalityLense {
             .await
             .expect("open new timeline");
 
-        Ok(Self {
+        let mut lense = Self {
             client,
             event_keys: HashMap::new(),
             timeline_keys: HashMap::new(),
             spans: 0,
-        })
+        };
+
+        if let Some(name) = options.name {
+            let timeline_key_name = lense
+                .get_or_create_timeline_attr_key("name".to_string())
+                .await
+                .map_err(|e| format!("failed to get timeline attr key: {:?}", e))?;
+
+            lense
+                .client
+                .timeline_metadata([(timeline_key_name, AttrVal::String(name))])
+                .await
+                .map_err(|e| format!("failed to name timeline: {}", e))?;
+        }
+
+        Ok(lense)
     }
 
     pub async fn handle_packet<'a>(&mut self, pkt: Packet<'_>) -> Result<(), ()> {

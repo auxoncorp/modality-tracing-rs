@@ -13,14 +13,7 @@ impl TracingModality {
         };
 
         let handler: Box<dyn FnMut(Packet<'_>) + Send> = Box::new(move |pkt| {
-            // I don't understand this, it only lets me capture a reference to the runtime,
-            // I would expect the runtime to get dropped and require me to capture the value of the
-            // runtime, but it seems to work? Leaving for now, it'll disappear when I get a
-            // non-tokio version of the SDK made anyway.
-            let rt = &rt;
-
-            let handle = rt.handle();
-            handle.block_on(async {
+            rt.handle().block_on(async {
                 lense.handle_packet(pkt).await.expect("handle packet");
             })
         });

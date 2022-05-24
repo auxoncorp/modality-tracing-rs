@@ -706,6 +706,7 @@ dependencies = [
 name = "tracing-modality"
 version = "0.1.0"
 dependencies = [
+ "modality-ingest-protocol",
  "serde_json",
  "tokio",
  "tracing",

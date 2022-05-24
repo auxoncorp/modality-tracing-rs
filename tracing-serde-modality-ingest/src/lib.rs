@@ -51,15 +51,15 @@ impl TracingModalityLense {
             spans: 0,
         };
 
-        if let Some(name) = options.name {
+        for (key, value) in options.metadata {
             let timeline_key_name = lense
-                .get_or_create_timeline_attr_key("name".to_string())
+                .get_or_create_timeline_attr_key(key)
                 .await
                 .map_err(|e| format!("failed to get timeline attr key: {:?}", e))?;
 
             lense
                 .client
-                .timeline_metadata([(timeline_key_name, AttrVal::String(name))])
+                .timeline_metadata([(timeline_key_name, value)])
                 .await
                 .map_err(|e| format!("failed to name timeline: {}", e))?;
         }

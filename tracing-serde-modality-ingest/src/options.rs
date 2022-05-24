@@ -1,8 +1,9 @@
+use modality_ingest_protocol::types::AttrVal;
 use std::net::SocketAddr;
 
 pub struct Options {
     pub(crate) auth: Option<String>,
-    pub(crate) name: Option<String>,
+    pub(crate) metadata: Vec<(String, AttrVal)>,
     pub(crate) server_addr: SocketAddr,
 }
 
@@ -11,25 +12,41 @@ impl Options {
         let auth = std::env::var("MODALITY_LICENSE_KEY").ok();
         let server_addr = ([127, 0, 0, 1], 14182).into();
         Options {
-            name: None,
             auth,
+            metadata: Vec::new(),
             server_addr,
         }
     }
 
-    pub fn set_auth(&mut self, auth: String) {
-        self.auth = Some(auth);
+    pub fn set_auth<S: AsRef<str>>(&mut self, auth: S) {
+        self.auth = Some(auth.as_ref().to_string());
     }
-    pub fn with_auth(mut self, auth: String) -> Self {
-        self.auth = Some(auth);
+    pub fn with_auth<S: AsRef<str>>(mut self, auth: S) -> Self {
+        self.auth = Some(auth.as_ref().to_string());
         self
     }
 
-    pub fn set_name(&mut self, auth: String) {
-        self.auth = Some(auth);
+    pub fn set_name<S: AsRef<str>>(&mut self, name: S) {
+        self.metadata.push((
+            "timeline.name".to_string(),
+            AttrVal::String(name.as_ref().to_string()),
+        ));
     }
-    pub fn with_name(mut self, auth: String) -> Self {
-        self.auth = Some(auth);
+    pub fn with_name<S: AsRef<str>>(mut self, name: S) -> Self {
+        self.metadata.push((
+            "timeline.name".to_string(),
+            AttrVal::String(name.as_ref().to_string()),
+        ));
+        self
+    }
+
+    pub fn set_metadata<K: AsRef<str>>(&mut self, key: K, value: AttrVal) {
+        self.metadata
+            .push((format!("timeline.{}", key.as_ref()), value));
+    }
+    pub fn with_metadata<K: AsRef<str>>(mut self, key: K, value: AttrVal) -> Self {
+        self.metadata
+            .push((format!("timeline.{}", key.as_ref()), value));
         self
     }
 

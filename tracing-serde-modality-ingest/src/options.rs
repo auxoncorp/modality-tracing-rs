@@ -1,6 +1,15 @@
 use modality_ingest_protocol::types::AttrVal;
 use std::net::SocketAddr;
+use std::sync::RwLock;
+use once_cell::sync::Lazy;
 
+/// This is here to facilitate configuration of multi-threaded tracing subscribers.
+/// It is an implementation detail, and may be removed at any time. Changing or
+/// removal of this static will NOT be considered a breaking change.
+#[doc(hidden)]
+pub static GLOBAL_OPTIONS: Lazy<RwLock<Options>> = Lazy::new(|| RwLock::new(Options::default()));
+
+#[derive(Clone)]
 pub struct Options {
     pub(crate) auth: Option<String>,
     pub(crate) metadata: Vec<(String, AttrVal)>,

@@ -711,6 +711,7 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-core",
+ "tracing-serde-modality-ingest",
  "tracing-serde-subscriber",
  "tracing-subscriber",
 ]
@@ -730,6 +731,7 @@ name = "tracing-serde-modality-ingest"
 version = "0.1.0"
 dependencies = [
  "modality-ingest-protocol",
+ "once_cell",
  "serde_json",
  "tokio",
  "tracing-serde",

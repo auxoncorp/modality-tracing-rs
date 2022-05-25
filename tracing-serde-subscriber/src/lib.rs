@@ -6,24 +6,32 @@ use tracing_core::{span::Current, Collect};
 use tracing_serde::AsSerde;
 use tracing_serde_wire::TracingWire;
 pub use tracing_serde_wire::Packet;
-use tracing_serde_modality_ingest::TracingModalityLense;
+use tracing_serde_modality_ingest::{TracingModalityLense, options::GLOBAL_OPTIONS};
 
 use std::thread_local;
 use once_cell::sync::Lazy;
 use tokio::runtime::Runtime;
+use std::thread;
+
+static START: Lazy<Instant> = Lazy::new(Instant::now);
 
 thread_local! {
     static COLLECTOR: Lazy<Mutex<Collector>> = Lazy::new(|| {
+        let opts = GLOBAL_OPTIONS.read().unwrap().clone();
+
+        let cur = thread::current();
+        let name = cur.name().map(str::to_string).unwrap_or_else(|| format!("Thread#{:?}", cur.id()));
+        let opts = opts.with_name(name);
+
         let rt = Runtime::new().expect("create tokio runtime");
         let lense = {
             let handle = rt.handle();
-            handle.block_on(async { TracingModalityLense::connect().await.expect("connect") })
+            handle.block_on(async { TracingModalityLense::connect_with_options(opts).await.expect("connect") })
         };
 
         Mutex::new(Collector {
             rt,
             lense,
-            start: Instant::now(),
             id: 1,
         })
     });
@@ -32,7 +40,6 @@ thread_local! {
 pub struct Collector {
     lense: TracingModalityLense,
     rt: Runtime,
-    start: Instant,
     id: u64,
 }
 
@@ -59,7 +66,7 @@ impl Collector {
             self.lense.handle_packet(Packet {
                 message: TracingWire::NewSpan(span.as_serde().to_owned()),
                 // NOTE: will give inaccurate data if the program has run for more than 584942 years.
-                tick: self.start.elapsed().as_micros() as u64,
+                tick: START.elapsed().as_micros() as u64,
             }).await
         }).unwrap();
         self.get_next_id()
@@ -73,7 +80,7 @@ impl Collector {
                     values: values.as_serde().to_owned(),
                 },
                 // NOTE: will give inaccurate data if the program has run for more than 584942 years.
-                tick: self.start.elapsed().as_micros() as u64,
+                tick: START.elapsed().as_micros() as u64,
             }).await
         }).unwrap();
     }
@@ -86,7 +93,7 @@ impl Collector {
                     follows: follows.as_serde().to_owned(),
                 },
                 // NOTE: will give inaccurate data if the program has run for more than 584942 years.
-                tick: self.start.elapsed().as_micros() as u64,
+                tick: START.elapsed().as_micros() as u64,
             }).await
         }).unwrap();
     }
@@ -96,7 +103,7 @@ impl Collector {
                 self.lense.handle_packet(Packet {
                 message: TracingWire::Event(event.as_serde().to_owned()),
                 // NOTE: will give inaccurate data if the program has run for more than 584942 years.
-                tick: self.start.elapsed().as_micros() as u64,
+                tick: START.elapsed().as_micros() as u64,
             }).await
         }).unwrap();
     }
@@ -106,7 +113,7 @@ impl Collector {
             self.lense.handle_packet(Packet {
                 message: TracingWire::Enter(span.as_serde()),
                 // NOTE: will give inaccurate data if the program has run for more than 584942 years.
-                tick: self.start.elapsed().as_micros() as u64,
+                tick: START.elapsed().as_micros() as u64,
             }).await
         }).unwrap();
     }
@@ -116,7 +123,7 @@ impl Collector {
             self.lense.handle_packet(Packet {
                 message: TracingWire::Exit(span.as_serde()),
                 // NOTE: will give inaccurate data if the program has run for more than 584942 years.
-                tick: self.start.elapsed().as_micros() as u64,
+                tick: START.elapsed().as_micros() as u64,
            }).await
         }).unwrap();
     }

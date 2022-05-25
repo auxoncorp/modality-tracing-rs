@@ -249,15 +249,37 @@ impl TracingModalityLense {
                                 continue;
                             }
 
-                            packed_attrs.push((
-                                self.get_or_create_event_attr_key(format!(
-                                    "event.payload.{}",
-                                    name.as_str()
-                                ))
-                                .await
-                                .unwrap(),
-                                attrval,
-                            ));
+                            // TODO(AJM): How do we get `interaction.remote_timeline_id`?
+                            match name.as_str() {
+                                // "remote_nonce" => {
+                                //     packed_attrs.push((
+                                //         self.get_or_create_event_attr_key("interaction.remote_nonce".into())
+                                //         .await
+                                //         .unwrap(),
+                                //         attrval,
+                                //     ));
+                                // }
+                                // "nonce" => {
+                                //     // TODO(AJM): Is this right?
+                                //     packed_attrs.push((
+                                //         self.get_or_create_event_attr_key("interaction.remote_nonce".into())
+                                //         .await
+                                //         .unwrap(),
+                                //         attrval,
+                                //     ));
+                                // }
+                                _ => {
+                                    packed_attrs.push((
+                                        self.get_or_create_event_attr_key(format!(
+                                            "event.payload.{}",
+                                            name.as_str()
+                                        ))
+                                        .await
+                                        .unwrap(),
+                                        attrval,
+                                    ));
+                                }
+                            }
                         }
                     }
                 }
@@ -451,7 +473,7 @@ impl TracingModalityLense {
                             AttrVal::Integer(ticks_per_sec.into()),
                         ));
                         packed_attrs.push((
-                            self.get_or_create_timeline_attr_key("timeline.deivce-id".to_string())
+                            self.get_or_create_timeline_attr_key("timeline.device-id".to_string())
                                 .await
                                 .unwrap(),
                             // TODO: this includes array syntax in the ID

@@ -11,3 +11,4 @@ tracing-serde-wire = { path = "../../tracing-playground/crates/tracing-serde-wir
 tokio = { version = "1", features = ["full"] }
 serde_json = "1"
 tracing-serde = { path = "../../tracing-playground/tracing/tracing-serde" }
+once_cell = "1.12.0"

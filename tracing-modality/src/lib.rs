@@ -1,4 +1,5 @@
 use tracing_core::Dispatch;
+use tracing_serde_modality_ingest::options::{Options, GLOBAL_OPTIONS};
 use tracing_serde_subscriber::TSCollector;
 
 pub struct TracingModality {}
@@ -12,5 +13,12 @@ impl TracingModality {
         tracing::event!(tracing::Level::TRACE, "Modality connected!");
 
         Self {}
+    }
+
+    pub fn init_with_options(opt: Options) -> Self {
+        let mut opts = GLOBAL_OPTIONS.write().unwrap();
+        *opts = opt;
+
+        Self::init()
     }
 }

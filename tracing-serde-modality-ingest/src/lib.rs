@@ -152,7 +152,6 @@ impl TracingModalityLense {
                 //        .unwrap(),
                 //    AttrVal::Bool(span.metadata.is_event),
                 //));
-
                 match &span.metadata.fields {
                     SerializeFieldSet::Ser(_event) => {
                         todo!()

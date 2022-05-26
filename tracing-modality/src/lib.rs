@@ -1,6 +1,7 @@
 use tracing_core::Dispatch;
 use tracing_serde_subscriber::{TSCollector};
-use tracing_serde_modality_ingest::options::{Options, GLOBAL_OPTIONS};
+use tracing_serde_modality_ingest::{options::{Options, GLOBAL_OPTIONS}};
+pub use tracing_serde_modality_ingest::TimelineId;
 
 pub struct TracingModality {}
 
@@ -21,4 +22,8 @@ impl TracingModality {
 
         Self::init()
     }
+}
+
+pub fn timeline_id() -> TimelineId {
+    tracing_serde_subscriber::timeline_id()
 }

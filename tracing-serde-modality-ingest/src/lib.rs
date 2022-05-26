@@ -2,7 +2,7 @@ pub mod options;
 
 use modality_ingest_protocol::{
     client::{BoundTimelineState, IngestClient},
-    types::{AttrVal, BigInt, EventAttrKey, TimelineAttrKey, TimelineId},
+    types::{AttrVal, BigInt, EventAttrKey, TimelineAttrKey, Uuid, LogicalTime},
 };
 use std::collections::HashMap;
 use tracing_serde::{
@@ -11,12 +11,14 @@ use tracing_serde::{
 use tracing_serde_wire::{Packet, TWOther, TracingWire};
 
 pub use options::Options;
+pub use modality_ingest_protocol::types::TimelineId;
 
 pub struct TracingModalityLense {
     client: IngestClient<BoundTimelineState>,
     event_keys: HashMap<String, EventAttrKey>,
     timeline_keys: HashMap<String, TimelineAttrKey>,
     spans: u64,
+    timeline_id: TimelineId,
 }
 
 impl TracingModalityLense {
@@ -39,8 +41,10 @@ impl TracingModalityLense {
             .await
             .expect("auth");
 
+        let timeline_id = TimelineId::allocate();
+
         let client = client
-            .open_timeline(TimelineId::allocate())
+            .open_timeline(timeline_id)
             .await
             .expect("open new timeline");
 
@@ -49,6 +53,7 @@ impl TracingModalityLense {
             event_keys: HashMap::new(),
             timeline_keys: HashMap::new(),
             spans: 0,
+            timeline_id,
         };
 
         for (key, value) in options.metadata {
@@ -65,6 +70,10 @@ impl TracingModalityLense {
         }
 
         Ok(lense)
+    }
+
+    pub fn timeline_id(&self) -> TimelineId {
+        self.timeline_id
     }
 
     pub async fn handle_packet<'a>(&mut self, pkt: Packet<'_>) -> Result<(), ()> {
@@ -137,6 +146,13 @@ impl TracingModalityLense {
                         AttrVal::String(line.to_string()),
                     ));
                 }
+
+                packed_attrs.push((
+                    self.get_or_create_event_attr_key("event.logical_time".to_string())
+                        .await
+                        .unwrap(),
+                    AttrVal::LogicalTime(LogicalTime::unary(pkt.tick)),
+                ));
 
                 // These 2 duplicate the `kind` field
                 //packed_attrs.push((
@@ -214,23 +230,35 @@ impl TracingModalityLense {
 
                             // TODO(AJM): How do we get `interaction.remote_timeline_id`?
                             match name.as_str() {
-                                // "remote_nonce" => {
-                                //     packed_attrs.push((
-                                //         self.get_or_create_event_attr_key("interaction.remote_nonce".into())
-                                //         .await
-                                //         .unwrap(),
-                                //         attrval,
-                                //     ));
-                                // }
-                                // "nonce" => {
-                                //     // TODO(AJM): Is this right?
-                                //     packed_attrs.push((
-                                //         self.get_or_create_event_attr_key("interaction.remote_nonce".into())
-                                //         .await
-                                //         .unwrap(),
-                                //         attrval,
-                                //     ));
-                                // }
+                                "nonce" => {
+                                    packed_attrs.push((
+                                        self.get_or_create_event_attr_key("event.nonce".into())
+                                        .await
+                                        .unwrap(),
+                                        attrval,
+                                    ));
+                                }
+                                "remote_nonce" => {
+                                    packed_attrs.push((
+                                        self.get_or_create_event_attr_key("event.interaction.remote_nonce".into())
+                                        .await
+                                        .unwrap(),
+                                        attrval,
+                                    ));
+                                }
+                                "remote_timeline_id" => {
+                                    if let AttrVal::String(string) = attrval {
+                                        use std::str::FromStr;
+                                        if let Ok(uuid) = Uuid::from_str(&string) {
+                                            packed_attrs.push((
+                                                self.get_or_create_event_attr_key("event.interaction.remote_timeline_id".into())
+                                                .await
+                                                .unwrap(),
+                                                AttrVal::TimelineId(Box::new(uuid.into())),
+                                            ));
+                                        }
+                                    }
+                                }
                                 _ => {
                                     packed_attrs.push((
                                         self.get_or_create_event_attr_key(format!(
@@ -321,6 +349,13 @@ impl TracingModalityLense {
                 //    AttrVal::Bool(ev.metadata.is_event),
                 //));
 
+                packed_attrs.push((
+                    self.get_or_create_event_attr_key("event.logical_time".to_string())
+                        .await
+                        .unwrap(),
+                    AttrVal::LogicalTime(LogicalTime::unary(pkt.tick)),
+                ));
+
                 self.client
                     .event(pkt.tick.into(), packed_attrs)
                     .await
@@ -363,6 +398,13 @@ impl TracingModalityLense {
                         .await
                         .unwrap(),
                     BigInt::new_attr_val(u64::from(id).into()),
+                ));
+
+                packed_attrs.push((
+                    self.get_or_create_event_attr_key("event.logical_time".to_string())
+                        .await
+                        .unwrap(),
+                    AttrVal::LogicalTime(LogicalTime::unary(pkt.tick)),
                 ));
 
                 self.client

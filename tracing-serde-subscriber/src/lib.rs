@@ -1,5 +1,5 @@
 use std::num::NonZeroU64;
-use std::sync::Mutex;
+use std::sync::RwLock;
 use std::time::Instant;
 use tracing_core::span::Id;
 use tracing_core::{span::Current, Collect};
@@ -7,6 +7,7 @@ use tracing_serde::AsSerde;
 use tracing_serde_wire::TracingWire;
 pub use tracing_serde_wire::Packet;
 use tracing_serde_modality_ingest::{TracingModalityLense, options::GLOBAL_OPTIONS};
+pub use tracing_serde_modality_ingest::TimelineId;
 
 use std::thread_local;
 use once_cell::sync::Lazy;
@@ -16,7 +17,7 @@ use std::thread;
 static START: Lazy<Instant> = Lazy::new(Instant::now);
 
 thread_local! {
-    static COLLECTOR: Lazy<Mutex<Collector>> = Lazy::new(|| {
+    static COLLECTOR: Lazy<RwLock<Collector>> = Lazy::new(|| {
         let opts = GLOBAL_OPTIONS.read().unwrap().clone();
 
         let cur = thread::current();
@@ -29,12 +30,16 @@ thread_local! {
             handle.block_on(async { TracingModalityLense::connect_with_options(opts).await.expect("connect") })
         };
 
-        Mutex::new(Collector {
+        RwLock::new(Collector {
             rt,
             lense,
             id: 1,
         })
     });
+}
+
+pub fn timeline_id() -> TimelineId {
+    COLLECTOR.with(|c| c.read().unwrap().lense.timeline_id())
 }
 
 pub struct Collector {
@@ -55,7 +60,7 @@ impl Collector {
 }
 
 impl Collector {
-    fn enabled(&mut self, _metadata: &tracing_core::Metadata<'_>) -> bool {
+    fn enabled(&self, _metadata: &tracing_core::Metadata<'_>) -> bool {
         // Note: nothing to log here, this is a `query` whether the trace is active
         // TODO: always enabled for now.
         true
@@ -138,34 +143,34 @@ pub struct TSCollector;
 impl Collect for TSCollector
 {
     fn enabled(&self, metadata: &tracing_core::Metadata<'_>) -> bool {
-        COLLECTOR.with(|c| c.lock().unwrap().enabled(metadata))
+        COLLECTOR.with(|c| c.read().unwrap().enabled(metadata))
     }
 
     fn new_span(&self, span: &tracing_core::span::Attributes<'_>) -> tracing_core::span::Id {
-        COLLECTOR.with(|c| c.lock().unwrap().new_span(span))
+        COLLECTOR.with(|c| c.write().unwrap().new_span(span))
     }
 
     fn record(&self, span: &tracing_core::span::Id, values: &tracing_core::span::Record<'_>) {
-        COLLECTOR.with(|c| c.lock().unwrap().record(span, values))
+        COLLECTOR.with(|c| c.write().unwrap().record(span, values))
     }
 
     fn record_follows_from(&self, span: &tracing_core::span::Id, follows: &tracing_core::span::Id) {
-        COLLECTOR.with(|c| c.lock().unwrap().record_follows_from(span, follows))
+        COLLECTOR.with(|c| c.write().unwrap().record_follows_from(span, follows))
     }
 
     fn event(&self, event: &tracing_core::Event<'_>) {
-        COLLECTOR.with(|c| c.lock().unwrap().event(event))
+        COLLECTOR.with(|c| c.write().unwrap().event(event))
     }
 
     fn enter(&self, span: &tracing_core::span::Id) {
-        COLLECTOR.with(|c| c.lock().unwrap().enter(span))
+        COLLECTOR.with(|c| c.write().unwrap().enter(span))
     }
 
     fn exit(&self, span: &tracing_core::span::Id) {
-        COLLECTOR.with(|c| c.lock().unwrap().exit(span))
+        COLLECTOR.with(|c| c.write().unwrap().exit(span))
     }
 
     fn current_span(&self) -> tracing_core::span::Current {
-        COLLECTOR.with(|c| c.lock().unwrap().current_span())
+        COLLECTOR.with(|c| c.read().unwrap().current_span())
     }
 }

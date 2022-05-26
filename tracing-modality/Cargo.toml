@@ -13,5 +13,8 @@ tracing-subscriber = { "path" = "../../tracing-playground/tracing/tracing-subscr
 tracing-core = { "path" = "../../tracing-playground/tracing/tracing-core" }
 tracing = { "path" = "../../tracing-playground/tracing/tracing" }
 tracing-serde-modality-ingest = { path = "../tracing-serde-modality-ingest" }
-
 modality-ingest-protocol = { path = "../../modality-sdk/client-libraries/rust/modality-ingest-client/" }
+
+[dev-dependencies]
+# used for "collatz" example
+rand = { version = "0.8.5" }

@@ -4,15 +4,15 @@ use std::time::Instant;
 use tracing_core::span::Id;
 use tracing_core::{span::Current, Collect};
 use tracing_serde::AsSerde;
-use tracing_serde_wire::TracingWire;
-pub use tracing_serde_wire::Packet;
-use tracing_serde_modality_ingest::{TracingModalityLense, options::GLOBAL_OPTIONS};
 pub use tracing_serde_modality_ingest::TimelineId;
+use tracing_serde_modality_ingest::{options::GLOBAL_OPTIONS, TracingModalityLense};
+pub use tracing_serde_wire::Packet;
+use tracing_serde_wire::TracingWire;
 
-use std::thread_local;
 use once_cell::sync::Lazy;
-use tokio::runtime::Runtime;
 use std::thread;
+use std::thread_local;
+use tokio::runtime::Runtime;
 
 static START: Lazy<Instant> = Lazy::new(Instant::now);
 
@@ -67,70 +67,104 @@ impl Collector {
     }
 
     fn new_span(&mut self, span: &tracing_core::span::Attributes<'_>) -> tracing_core::span::Id {
-        self.rt.handle().block_on(async {
-            self.lense.handle_packet(Packet {
-                message: TracingWire::NewSpan(span.as_serde().to_owned()),
-                // NOTE: will give inaccurate data if the program has run for more than 584942 years.
-                tick: START.elapsed().as_micros() as u64,
-            }).await
-        }).unwrap();
+        self.rt
+            .handle()
+            .block_on(async {
+                self.lense
+                    .handle_packet(Packet {
+                        message: TracingWire::NewSpan(span.as_serde().to_owned()),
+                        // NOTE: will give inaccurate data if the program has run for more than 584942 years.
+                        tick: START.elapsed().as_micros() as u64,
+                    })
+                    .await
+            })
+            .unwrap();
         self.get_next_id()
     }
 
     fn record(&mut self, span: &tracing_core::span::Id, values: &tracing_core::span::Record<'_>) {
-        self.rt.handle().block_on(async {
-            self.lense.handle_packet(Packet {
-                message: TracingWire::Record {
-                    span: span.as_serde(),
-                    values: values.as_serde().to_owned(),
-                },
-                // NOTE: will give inaccurate data if the program has run for more than 584942 years.
-                tick: START.elapsed().as_micros() as u64,
-            }).await
-        }).unwrap();
+        self.rt
+            .handle()
+            .block_on(async {
+                self.lense
+                    .handle_packet(Packet {
+                        message: TracingWire::Record {
+                            span: span.as_serde(),
+                            values: values.as_serde().to_owned(),
+                        },
+                        // NOTE: will give inaccurate data if the program has run for more than 584942 years.
+                        tick: START.elapsed().as_micros() as u64,
+                    })
+                    .await
+            })
+            .unwrap();
     }
 
-    fn record_follows_from(&mut self, span: &tracing_core::span::Id, follows: &tracing_core::span::Id) {
-        self.rt.handle().block_on(async {
-            self.lense.handle_packet(Packet {
-                message: TracingWire::RecordFollowsFrom {
-                    span: span.as_serde(),
-                    follows: follows.as_serde().to_owned(),
-                },
-                // NOTE: will give inaccurate data if the program has run for more than 584942 years.
-                tick: START.elapsed().as_micros() as u64,
-            }).await
-        }).unwrap();
+    fn record_follows_from(
+        &mut self,
+        span: &tracing_core::span::Id,
+        follows: &tracing_core::span::Id,
+    ) {
+        self.rt
+            .handle()
+            .block_on(async {
+                self.lense
+                    .handle_packet(Packet {
+                        message: TracingWire::RecordFollowsFrom {
+                            span: span.as_serde(),
+                            follows: follows.as_serde().to_owned(),
+                        },
+                        // NOTE: will give inaccurate data if the program has run for more than 584942 years.
+                        tick: START.elapsed().as_micros() as u64,
+                    })
+                    .await
+            })
+            .unwrap();
     }
 
     fn event(&mut self, event: &tracing_core::Event<'_>) {
-        self.rt.handle().block_on(async {
-                self.lense.handle_packet(Packet {
-                message: TracingWire::Event(event.as_serde().to_owned()),
-                // NOTE: will give inaccurate data if the program has run for more than 584942 years.
-                tick: START.elapsed().as_micros() as u64,
-            }).await
-        }).unwrap();
+        self.rt
+            .handle()
+            .block_on(async {
+                self.lense
+                    .handle_packet(Packet {
+                        message: TracingWire::Event(event.as_serde().to_owned()),
+                        // NOTE: will give inaccurate data if the program has run for more than 584942 years.
+                        tick: START.elapsed().as_micros() as u64,
+                    })
+                    .await
+            })
+            .unwrap();
     }
 
     fn enter(&mut self, span: &tracing_core::span::Id) {
-        self.rt.handle().block_on(async {
-            self.lense.handle_packet(Packet {
-                message: TracingWire::Enter(span.as_serde()),
-                // NOTE: will give inaccurate data if the program has run for more than 584942 years.
-                tick: START.elapsed().as_micros() as u64,
-            }).await
-        }).unwrap();
+        self.rt
+            .handle()
+            .block_on(async {
+                self.lense
+                    .handle_packet(Packet {
+                        message: TracingWire::Enter(span.as_serde()),
+                        // NOTE: will give inaccurate data if the program has run for more than 584942 years.
+                        tick: START.elapsed().as_micros() as u64,
+                    })
+                    .await
+            })
+            .unwrap();
     }
 
     fn exit(&mut self, span: &tracing_core::span::Id) {
-        self.rt.handle().block_on(async {
-            self.lense.handle_packet(Packet {
-                message: TracingWire::Exit(span.as_serde()),
-                // NOTE: will give inaccurate data if the program has run for more than 584942 years.
-                tick: START.elapsed().as_micros() as u64,
-           }).await
-        }).unwrap();
+        self.rt
+            .handle()
+            .block_on(async {
+                self.lense
+                    .handle_packet(Packet {
+                        message: TracingWire::Exit(span.as_serde()),
+                        // NOTE: will give inaccurate data if the program has run for more than 584942 years.
+                        tick: START.elapsed().as_micros() as u64,
+                    })
+                    .await
+            })
+            .unwrap();
     }
 
     fn current_span(&self) -> tracing_core::span::Current {
@@ -140,8 +174,7 @@ impl Collector {
 
 pub struct TSCollector;
 
-impl Collect for TSCollector
-{
+impl Collect for TSCollector {
     fn enabled(&self, metadata: &tracing_core::Metadata<'_>) -> bool {
         COLLECTOR.with(|c| c.read().unwrap().enabled(metadata))
     }

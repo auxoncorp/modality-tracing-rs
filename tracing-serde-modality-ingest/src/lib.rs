@@ -302,7 +302,7 @@ impl TracingModalityLense {
                 // note: overridden values will be a Integer instead of LogicalTime, is that a
                 // problem?
                 let logical_time = modality_fields
-                    .remove("modality.logical_time")
+                    .remove("logical_time")
                     .unwrap_or_else(|| AttrVal::LogicalTime(LogicalTime::unary(pkt.tick)));
                 packed_attrs.push((
                     self.get_or_create_event_attr_key("event.logical_time".to_string())

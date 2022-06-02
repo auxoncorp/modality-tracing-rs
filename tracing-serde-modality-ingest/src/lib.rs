@@ -560,7 +560,8 @@ impl TracingModalityLense {
     }
 }
 
-// `SerializeValue` is `#[nonexhaustive]`, returns `None` if they add a type we don't handle
+// `SerializeValue` is `#[nonexhaustive]`, returns `None` if they add a type we don't handle and
+// fail to serialize it as a stringified json value
 fn tracing_value_to_attr_val(value: SerializeValue) -> Option<AttrVal> {
     Some(match value {
         SerializeValue::Debug(dr) => match dr {
@@ -574,6 +575,12 @@ fn tracing_value_to_attr_val(value: SerializeValue) -> Option<AttrVal> {
         SerializeValue::I64(n) => AttrVal::Integer(n),
         SerializeValue::U64(n) => BigInt::new_attr_val(n.into()),
         SerializeValue::Bool(b) => AttrVal::Bool(b),
-        _ => return None,
+        unknown_sv => {
+            if let Ok(sval) = serde_json::to_string(&unknown_sv) {
+                AttrVal::String(sval)
+            } else {
+                return None;
+            }
+        }
     })
 }

@@ -1,8 +1,7 @@
 use rand::{thread_rng, Rng};
 use std::sync::mpsc::{channel, Receiver, Sender};
-use std::thread::{sleep, Builder, JoinHandle};
-use std::time::Duration;
-use tracing::{info, Level};
+use std::thread::{Builder, JoinHandle};
+use tracing::{info, info_span};
 use tracing_modality::{timeline_id, TimelineId, TracingModality};
 
 const THREADS: usize = 2;
@@ -48,7 +47,15 @@ fn main() {
                                     "received",
                                 );
 
-                                let result = job.num * 2;
+                                let comp_span = info_span!(
+                                    "computation",
+                                    abouttodothething = true,
+                                    modality.foo = "bar"
+                                );
+
+                                let result = comp_span.in_scope(|| {
+                                    job.num * 2
+                                });
                                 //let nonce = job.nonce + THREADS as u32;
                                 let nonce = job.nonce;
                                 info!(modality.nonce = nonce, source = ?timeline_id.get_raw(), result, "sending");
@@ -94,12 +101,12 @@ fn main() {
         let result = terminal_rx.recv().unwrap();
         match result {
             Message::Data(job) => {
-                //info!(
-                //    remote_nonce=job.nonce,
-                //    remote_timeline_id=?job.timeline_id.get_raw(),
-                //    job.num,
-                //    "result",
-                //);
+                info!(
+                    modality.interaction.remote_nonce=job.nonce,
+                    modality.interaction.remote_timeline_id=?job.timeline_id.get_raw(),
+                    job.num,
+                    "result",
+                );
             }
         }
     }

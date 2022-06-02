@@ -1,9 +1,12 @@
 use std::num::NonZeroU64;
 use std::sync::RwLock;
 use std::time::Instant;
+use tracing_core::field::Visit;
 use tracing_core::span::Id;
 use tracing_core::{span::Current, Collect};
 use tracing_serde::AsSerde;
+use tracing_serde::RecordMap;
+use tracing_serde::SerializeValue;
 pub use tracing_serde_modality_ingest::TimelineId;
 use tracing_serde_modality_ingest::{options::GLOBAL_OPTIONS, TracingModalityLense};
 pub use tracing_serde_wire::Packet;
@@ -67,19 +70,30 @@ impl Collector {
     }
 
     fn new_span(&mut self, span: &tracing_core::span::Attributes<'_>) -> tracing_core::span::Id {
+        let id = self.get_next_id();
+
+        let mut visitor = RecordMapBuilder::new();
+
+        span.record(&mut visitor);
+
         self.rt
             .handle()
             .block_on(async {
                 self.lense
                     .handle_packet(Packet {
-                        message: TracingWire::NewSpan(span.as_serde().to_owned()),
+                        message: TracingWire::NewSpan {
+                            id: id.as_serde(),
+                            attrs: span.as_serde().to_owned(),
+                            values: visitor.values().into(),
+                        },
                         // NOTE: will give inaccurate data if the program has run for more than 584942 years.
                         tick: START.elapsed().as_micros() as u64,
                     })
                     .await
             })
             .unwrap();
-        self.get_next_id()
+
+        id
     }
 
     fn record(&mut self, span: &tracing_core::span::Id, values: &tracing_core::span::Record<'_>) {
@@ -205,5 +219,71 @@ impl Collect for TSCollector {
 
     fn current_span(&self) -> tracing_core::span::Current {
         COLLECTOR.with(|c| c.read().unwrap().current_span())
+    }
+}
+
+struct RecordMapBuilder<'a> {
+    record_map: RecordMap<'a>,
+}
+
+impl<'a> RecordMapBuilder<'a> {
+    fn values(self) -> RecordMap<'a> {
+        self.record_map
+    }
+}
+
+impl<'a> RecordMapBuilder<'a> {
+    fn new() -> RecordMapBuilder<'a> {
+        RecordMapBuilder {
+            record_map: RecordMap::new(),
+        }
+    }
+}
+
+use core::fmt::Debug;
+use tracing_core::Field;
+use tracing_serde::CowString;
+
+impl<'a> Visit for RecordMapBuilder<'a> {
+    fn record_debug(&mut self, field: &Field, value: &dyn Debug) {
+        self.record_map.insert(
+            CowString::Borrowed(field.name()),
+            SerializeValue::Debug(CowString::Owned(format!("{:?}", value)).into()),
+        );
+    }
+
+    fn record_f64(&mut self, field: &Field, value: f64) {
+        self.record_map.insert(
+            CowString::Borrowed(field.name()),
+            SerializeValue::F64(value),
+        );
+    }
+
+    fn record_i64(&mut self, field: &Field, value: i64) {
+        self.record_map.insert(
+            CowString::Borrowed(field.name()),
+            SerializeValue::I64(value),
+        );
+    }
+
+    fn record_u64(&mut self, field: &Field, value: u64) {
+        self.record_map.insert(
+            CowString::Borrowed(field.name()),
+            SerializeValue::U64(value),
+        );
+    }
+
+    fn record_bool(&mut self, field: &Field, value: bool) {
+        self.record_map.insert(
+            CowString::Borrowed(field.name()),
+            SerializeValue::Bool(value),
+        );
+    }
+
+    fn record_str(&mut self, field: &Field, value: &str) {
+        self.record_map.insert(
+            CowString::Borrowed(field.name()),
+            SerializeValue::Str(CowString::Borrowed(value).to_owned()),
+        );
     }
 }

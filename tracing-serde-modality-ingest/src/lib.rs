@@ -6,7 +6,7 @@ use modality_ingest_protocol::{
 };
 use std::collections::HashMap;
 use tracing_serde::{
-    DebugRecord, SerializeFieldSet, SerializeId, SerializeRecordFields, SerializeValue,
+    DebugRecord, SerializeId, SerializeRecord, SerializeRecordFields, SerializeValue,
 };
 use tracing_serde_wire::{Packet, TWOther, TracingWire};
 
@@ -17,7 +17,6 @@ pub struct TracingModalityLense {
     client: IngestClient<BoundTimelineState>,
     event_keys: HashMap<String, EventAttrKey>,
     timeline_keys: HashMap<String, TimelineAttrKey>,
-    spans: u64,
     timeline_id: TimelineId,
 }
 
@@ -52,7 +51,6 @@ impl TracingModalityLense {
             client,
             event_keys: HashMap::new(),
             timeline_keys: HashMap::new(),
-            spans: 0,
             timeline_id,
         };
 
@@ -78,28 +76,41 @@ impl TracingModalityLense {
 
     pub async fn handle_packet<'a>(&mut self, pkt: Packet<'_>) -> Result<(), ()> {
         match pkt.message {
-            TracingWire::NewSpan(span) => {
-                self.spans += 1;
-                let id = self.spans;
-
-                //  TODO: fix serde-tracing-subscriber to send field values, not just keys
-                let message: Option<String> = None;
+            TracingWire::NewSpan { id, attrs, values } => {
+                let mut message: Option<String> = None;
                 let mut modality_fields: HashMap<String, AttrVal> = HashMap::new();
                 let mut packed_attrs = Vec::new();
 
-                match &span.metadata.fields {
-                    SerializeFieldSet::Ser(_event) => {
-                        todo!()
+                match values {
+                    SerializeRecord::Ser(_event) => {
+                        panic!("this variant can't be sent")
                     }
-                    SerializeFieldSet::De(record_map) => {
-                        // TODO: this is only recording the keys because that's all that is
-                        //       currently sent, fix this
-                        for (idx, value) in record_map.iter().enumerate() {
+                    SerializeRecord::De(record_map) => {
+                        for (name, value) in record_map {
+                            let attrval = if let Some(attrval) = tracing_value_to_attr_val(value) {
+                                attrval
+                            } else {
+                                continue;
+                            };
+
+                            if name.as_str() == "message" {
+                                if let AttrVal::String(s) = attrval {
+                                    message = Some(s);
+                                    continue;
+                                }
+                            } else if let Some(("modality", name)) = name.as_str().split_once('.') {
+                                modality_fields.insert(name.to_owned(), attrval);
+                                continue;
+                            }
+
                             packed_attrs.push((
-                                self.get_or_create_event_attr_key(format!("event.payload.{}", idx))
-                                    .await
-                                    .unwrap(),
-                                AttrVal::String(value.to_string()),
+                                self.get_or_create_event_attr_key(format!(
+                                    "event.payload.{}",
+                                    name.as_str()
+                                ))
+                                .await
+                                .unwrap(),
+                                attrval,
                             ));
                         }
                     }
@@ -115,9 +126,9 @@ impl TracingModalityLense {
                     kind,
                 ));
 
-                let span_id = modality_fields.remove("span_id").unwrap_or_else(|| {
-                    BigInt::new_attr_val(id.try_into().expect("64 bit or smaller architechure"))
-                });
+                let span_id = modality_fields
+                    .remove("span_id")
+                    .unwrap_or_else(|| BigInt::new_attr_val(id.id.get() as i128));
                 packed_attrs.push((
                     self.get_or_create_event_attr_key("event.span-id".to_string())
                         .await
@@ -128,7 +139,7 @@ impl TracingModalityLense {
                 let name = modality_fields
                     .remove("name")
                     .or_else(|| message.map(|m| m.into()))
-                    .unwrap_or_else(|| span.metadata.name.as_str().into());
+                    .unwrap_or_else(|| attrs.metadata.name.as_str().into());
                 packed_attrs.push((
                     self.get_or_create_event_attr_key("event.name".to_string())
                         .await
@@ -141,12 +152,12 @@ impl TracingModalityLense {
                 //    self.get_or_create_event_attr_key("event.metadata.target".to_string())
                 //        .await
                 //        .unwrap(),
-                //    AttrVal::String(span.metadata.target.to_string()),
+                //    AttrVal::String(attrs.metadata.target.to_string()),
                 //));
 
                 let severity = modality_fields
                     .remove("severity")
-                    .unwrap_or_else(|| format!("{:?}", span.metadata.level).into());
+                    .unwrap_or_else(|| format!("{:?}", attrs.metadata.level).into());
                 packed_attrs.push((
                     self.get_or_create_event_attr_key("event.severity".to_string())
                         .await
@@ -156,7 +167,7 @@ impl TracingModalityLense {
 
                 let module_path = modality_fields
                     .remove("module_path")
-                    .or_else(|| span.metadata.module_path.map(|mp| mp.as_str().into()));
+                    .or_else(|| attrs.metadata.module_path.map(|mp| mp.as_str().into()));
                 if let Some(module_path) = module_path {
                     packed_attrs.push((
                         self.get_or_create_event_attr_key("event.module_path".to_string())
@@ -168,7 +179,7 @@ impl TracingModalityLense {
 
                 let source_file = modality_fields
                     .remove("source_file")
-                    .or_else(|| span.metadata.file.map(|mp| mp.as_str().into()));
+                    .or_else(|| attrs.metadata.file.map(|mp| mp.as_str().into()));
                 if let Some(source_file) = source_file {
                     packed_attrs.push((
                         self.get_or_create_event_attr_key("event.source_file".to_string())
@@ -179,7 +190,7 @@ impl TracingModalityLense {
                 }
 
                 let source_line = modality_fields.remove("source_line").or_else(|| {
-                    span.metadata.line.map(|mp| {
+                    attrs.metadata.line.map(|mp| {
                         let mp: i64 = mp.into();
                         mp.into()
                     })
@@ -205,26 +216,24 @@ impl TracingModalityLense {
                 //    self.get_or_create_event_attr_key("event.metadata.is_span".to_string())
                 //        .await
                 //        .unwrap(),
-                //    AttrVal::Bool(span.metadata.is_span),
+                //    AttrVal::Bool(attrs.metadata.is_span),
                 //));
 
                 //packed_attrs.push((
                 //    self.get_or_create_event_attr_key("event.metadata.is_event".to_string())
                 //        .await
                 //        .unwrap(),
-                //    AttrVal::Bool(span.metadata.is_event),
+                //    AttrVal::Bool(attrs.metadata.is_event),
                 //));
 
                 // pack any remaining fields specified to be modality keys
                 for (key, val) in modality_fields {
-                    if let Some(("modality.", key)) = key.split_once('.') {
-                        packed_attrs.push((
-                            self.get_or_create_event_attr_key(format!("event.{}", key))
-                                .await
-                                .unwrap(),
-                            val,
-                        ));
-                    }
+                    packed_attrs.push((
+                        self.get_or_create_event_attr_key(format!("event.{}", key))
+                            .await
+                            .unwrap(),
+                        val,
+                    ));
                 }
 
                 self.client
@@ -232,12 +241,8 @@ impl TracingModalityLense {
                     .await
                     .unwrap();
             }
-            TracingWire::Record { .. } => {
-                todo!("dunno what these are")
-            }
-            TracingWire::RecordFollowsFrom { .. } => {
-                todo!("dunno what these are")
-            }
+            TracingWire::Record { .. } => {}
+            TracingWire::RecordFollowsFrom { .. } => {}
             TracingWire::Event(ev) => {
                 let mut packed_attrs = Vec::new();
                 let mut message = None;
@@ -245,7 +250,7 @@ impl TracingModalityLense {
 
                 match ev.fields {
                     SerializeRecordFields::Ser(_event) => {
-                        todo!()
+                        panic!("this variant can't be sent")
                     }
                     SerializeRecordFields::De(record_map) => {
                         for (name, value) in record_map {

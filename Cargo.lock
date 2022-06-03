@@ -748,9 +748,11 @@ dependencies = [
 name = "tracing-modality"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "modality-ingest-protocol",
  "rand",
  "serde_json",
+ "thiserror",
  "tokio",
  "tracing",
  "tracing-core",

@@ -19,7 +19,7 @@ struct Job {
 }
 
 fn main() {
-    TracingModality::init();
+    TracingModality::init().expect("init tracing");
     let mut rng = thread_rng();
 
     let terminal_channel: (Sender<Message>, Receiver<Message>) = channel();

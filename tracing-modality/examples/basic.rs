@@ -7,7 +7,8 @@ fn main() {
         Options::new()
             .with_name("basic example")
             .with_metadata("build-id", AttrVal::Integer(0)),
-    );
+    )
+    .expect("init tracing");
 
     let span = span!(Level::TRACE, "outer_span");
     let _span = span.enter();

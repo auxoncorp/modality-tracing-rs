@@ -1,7 +1,8 @@
 use tracing_core::Dispatch;
-use tracing_serde_modality_ingest::options::{Options, GLOBAL_OPTIONS};
-pub use tracing_serde_modality_ingest::TimelineId;
+use tracing_serde_modality_ingest::options::GLOBAL_OPTIONS;
 use tracing_serde_subscriber::TSCollector;
+
+pub use tracing_serde_modality_ingest::{options::Options, TimelineId};
 
 pub struct TracingModality {}
 

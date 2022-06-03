@@ -9,6 +9,7 @@ use std::sync::RwLock;
 #[doc(hidden)]
 pub static GLOBAL_OPTIONS: Lazy<RwLock<Options>> = Lazy::new(|| RwLock::new(Options::default()));
 
+/// Initialization options.
 #[derive(Clone)]
 pub struct Options {
     pub(crate) auth: Option<String>,
@@ -27,20 +28,26 @@ impl Options {
         }
     }
 
+    /// Set an auth token to be provided to modality. Tokens should be stringish values of the format
+    /// `XXXXXX-XXXXXX-XXXXXX-XXXXXX-XXXXXX-V3`.
     pub fn set_auth<S: AsRef<str>>(&mut self, auth: S) {
         self.auth = Some(auth.as_ref().to_string());
     }
+    /// A chainable version of [set_auth](Self::set_auth).
     pub fn with_auth<S: AsRef<str>>(mut self, auth: S) -> Self {
         self.auth = Some(auth.as_ref().to_string());
         self
     }
 
+    /// Set the name for the root timeline. By default this will be the name of the main thread as
+    /// provided by the OS.
     pub fn set_name<S: AsRef<str>>(&mut self, name: S) {
         self.metadata.push((
             "timeline.name".to_string(),
             AttrVal::String(name.as_ref().to_string()),
         ));
     }
+    /// A chainable version of [set_name](Self::set_name).
     pub fn with_name<S: AsRef<str>>(mut self, name: S) -> Self {
         self.metadata.push((
             "timeline.name".to_string(),
@@ -49,19 +56,27 @@ impl Options {
         self
     }
 
+    /// Add arbitrary metadata to the root timeline.
+    ///
+    /// This can be called multiple times.
     pub fn add_metadata<K: AsRef<str>>(&mut self, key: K, value: AttrVal) {
         self.metadata
             .push((format!("timeline.{}", key.as_ref()), value));
     }
+    /// A chainable version of [add_metadata](Self::add_metadata).
     pub fn with_metadata<K: AsRef<str>>(mut self, key: K, value: AttrVal) -> Self {
         self.metadata
             .push((format!("timeline.{}", key.as_ref()), value));
         self
     }
 
+    /// Set the address of modalityd or a modality reflector where trace data should be sent.
+    ///
+    /// Defaults to `localhost:default_port`
     pub fn set_server_address(&mut self, addr: SocketAddr) {
         self.server_addr = addr;
     }
+    /// A chainable version of [set_server_address](Self::set_server_address).
     pub fn with_server_address(mut self, addr: SocketAddr) -> Self {
         self.server_addr = addr;
         self

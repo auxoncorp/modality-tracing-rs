@@ -49,7 +49,7 @@ impl Options {
         self
     }
 
-    pub fn set_metadata<K: AsRef<str>>(&mut self, key: K, value: AttrVal) {
+    pub fn add_metadata<K: AsRef<str>>(&mut self, key: K, value: AttrVal) {
         self.metadata
             .push((format!("timeline.{}", key.as_ref()), value));
     }

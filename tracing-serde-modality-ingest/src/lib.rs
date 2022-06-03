@@ -1,10 +1,13 @@
 pub mod options;
 
+use anyhow::Context;
 use modality_ingest_protocol::{
     client::{BoundTimelineState, IngestClient},
     types::{AttrVal, BigInt, EventAttrKey, LogicalTime, TimelineAttrKey, Uuid},
+    IngestError as SdkIngestError,
 };
 use std::collections::HashMap;
+use thiserror::Error;
 use tracing_serde::{
     DebugRecord, RecordMap, SerializeId, SerializeMetadata, SerializeRecord, SerializeRecordFields,
     SerializeValue,
@@ -14,6 +17,28 @@ use tracing_serde_wire::{Packet, TWOther, TracingWire};
 pub use modality_ingest_protocol::types::TimelineId;
 pub use options::Options;
 
+#[derive(Debug, Error)]
+pub enum ConnectError {
+    /// No auth was provided
+    #[error("Authentication required")]
+    AuthRequired,
+    /// Auth was provided, but was not accepted by modality
+    #[error("Authenticating with the provided auth failed")]
+    AuthFailed(SdkIngestError),
+    /// Errors that it is assumed there is no way to handle without human intervention, meant for
+    /// consumers to just print and carry on or panic.
+    #[error(transparent)]
+    UnexpectedFailure(#[from] anyhow::Error),
+}
+
+#[derive(Debug, Error)]
+pub enum IngestError {
+    /// Errors that it is assumed there is no way to handle without human intervention, meant for
+    /// consumers to just print and carry on or panic.
+    #[error(transparent)]
+    UnexpectedFailure(#[from] anyhow::Error),
+}
+
 pub struct TracingModalityLense {
     client: IngestClient<BoundTimelineState>,
     event_keys: HashMap<String, EventAttrKey>,
@@ -22,31 +47,29 @@ pub struct TracingModalityLense {
 }
 
 impl TracingModalityLense {
-    pub async fn connect() -> Result<Self, String> {
+    pub async fn connect() -> Result<Self, ConnectError> {
         let opt = Options::default();
 
         Self::connect_with_options(opt).await
     }
 
-    pub async fn connect_with_options(options: Options) -> Result<Self, String> {
+    pub async fn connect_with_options(options: Options) -> Result<Self, ConnectError> {
         let unauth_client = IngestClient::new(options.server_addr)
             .await
-            .map_err(|e| format!("on IngestClient::new {}", e))?;
+            .context("init ingest client")?;
 
-        let auth_key = options
-            .auth
-            .ok_or_else(|| "auth requred, specify as option or env var".to_string())?;
+        let auth_key = options.auth.ok_or(ConnectError::AuthRequired)?;
         let client = unauth_client
             .authenticate(auth_key.as_bytes().to_vec())
             .await
-            .expect("auth");
+            .map_err(ConnectError::AuthFailed)?;
 
         let timeline_id = TimelineId::allocate();
 
         let client = client
             .open_timeline(timeline_id)
             .await
-            .expect("open new timeline");
+            .context("open new timeline")?;
 
         let mut lense = Self {
             client,
@@ -59,13 +82,13 @@ impl TracingModalityLense {
             let timeline_key_name = lense
                 .get_or_create_timeline_attr_key(key)
                 .await
-                .map_err(|e| format!("failed to get timeline attr key: {:?}", e))?;
+                .context("get or define timeline attr key")?;
 
             lense
                 .client
                 .timeline_metadata([(timeline_key_name, value)])
                 .await
-                .map_err(|e| format!("failed to name timeline: {}", e))?;
+                .context("apply timeline metadata")?;
         }
 
         Ok(lense)
@@ -75,7 +98,7 @@ impl TracingModalityLense {
         self.timeline_id
     }
 
-    pub async fn handle_packet<'a>(&mut self, pkt: Packet<'_>) -> Result<(), ()> {
+    pub async fn handle_packet<'a>(&mut self, pkt: Packet<'_>) -> Result<(), IngestError> {
         match pkt.message {
             TracingWire::NewSpan { id, attrs, values } => {
                 let mut records = match values {
@@ -93,8 +116,7 @@ impl TracingModalityLense {
                     .unwrap_or_else(|| "span-defined".into());
                 packed_attrs.push((
                     self.get_or_create_event_attr_key("event.kind".to_string())
-                        .await
-                        .unwrap(),
+                        .await?,
                     kind,
                 ));
 
@@ -104,18 +126,17 @@ impl TracingModalityLense {
                     .unwrap_or_else(|| BigInt::new_attr_val(id.id.get() as i128));
                 packed_attrs.push((
                     self.get_or_create_event_attr_key("event.span-id".to_string())
-                        .await
-                        .unwrap(),
+                        .await?,
                     span_id,
                 ));
 
                 self.pack_common_attrs(&mut packed_attrs, attrs.metadata, records, pkt.tick)
-                    .await;
+                    .await?;
 
                 self.client
                     .event(pkt.tick.into(), packed_attrs)
                     .await
-                    .unwrap();
+                    .context("send packed event")?;
             }
             TracingWire::Record { .. } => {
                 // TODO: span events can't be added to after being sent, impl this once we can use
@@ -141,8 +162,7 @@ impl TracingModalityLense {
                     .unwrap_or_else(|| "event".into());
                 packed_attrs.push((
                     self.get_or_create_event_attr_key("event.kind".to_string())
-                        .await
-                        .unwrap(),
+                        .await?,
                     kind,
                 ));
 
@@ -166,77 +186,70 @@ impl TracingModalityLense {
                         self.get_or_create_event_attr_key(
                             "event.interaction.remote_timeline_id".into(),
                         )
-                        .await
-                        .unwrap(),
+                        .await?,
                         remote_timeline_id,
                     ));
                 }
 
                 self.pack_common_attrs(&mut packed_attrs, ev.metadata, records, pkt.tick)
-                    .await;
+                    .await?;
 
                 self.client
                     .event(pkt.tick.into(), packed_attrs)
                     .await
-                    .unwrap();
+                    .context("send packed event")?;
             }
             TracingWire::Enter(SerializeId { id }) => {
                 let mut packed_attrs = Vec::new();
 
                 packed_attrs.push((
                     self.get_or_create_event_attr_key("event.kind".to_string())
-                        .await
-                        .unwrap(),
+                        .await?,
                     AttrVal::String("span-enter".to_string()),
                 ));
 
                 packed_attrs.push((
                     self.get_or_create_event_attr_key("event.span-id".to_string())
-                        .await
-                        .unwrap(),
+                        .await?,
                     BigInt::new_attr_val(u64::from(id).into()),
                 ));
 
                 packed_attrs.push((
                     self.get_or_create_event_attr_key("event.logical_time".to_string())
-                        .await
-                        .unwrap(),
+                        .await?,
                     AttrVal::LogicalTime(LogicalTime::unary(pkt.tick)),
                 ));
 
                 self.client
                     .event(pkt.tick.into(), packed_attrs)
                     .await
-                    .unwrap();
+                    .context("send packed event")?;
             }
             TracingWire::Exit(SerializeId { id }) => {
                 let mut packed_attrs = Vec::new();
 
                 packed_attrs.push((
                     self.get_or_create_event_attr_key("event.kind".to_string())
-                        .await
-                        .unwrap(),
+                        .await?,
                     AttrVal::String("span-exit".to_string()),
                 ));
 
                 packed_attrs.push((
                     self.get_or_create_event_attr_key("event.span-id".to_string())
-                        .await
-                        .unwrap(),
+                        .await?,
                     BigInt::new_attr_val(u64::from(id).into()),
                 ));
 
                 packed_attrs.push((
                     self.get_or_create_event_attr_key("event.logical_time".to_string())
-                        .await
-                        .unwrap(),
+                        .await?,
                     AttrVal::LogicalTime(LogicalTime::unary(pkt.tick)),
                 ));
 
                 self.client
                     .event(pkt.tick.into(), packed_attrs)
                     .await
-                    .unwrap();
+                    .context("send packed event")?;
             }
             TracingWire::Other(two) => {
                 match two {
@@ -245,14 +258,13 @@ impl TracingModalityLense {
 
                         packed_attrs.push((
                             self.get_or_create_event_attr_key("event.kind".to_string())
-                                .await
-                                .unwrap(),
+                                .await?,
                             AttrVal::String("message-discarded".to_string()),
                         ));
                         self.client
                             .event(pkt.tick.into(), packed_attrs)
                             .await
-                            .unwrap();
+                            .context("send packed event")?;
                     }
                     TWOther::DeviceInfo {
                         clock_id,
@@ -262,26 +274,26 @@ impl TracingModalityLense {
                         let mut packed_attrs = Vec::new();
                         packed_attrs.push((
                             self.get_or_create_timeline_attr_key("timeline.clock-id".to_string())
-                                .await
-                                .unwrap(),
+                                .await?,
                             AttrVal::Integer(clock_id.into()),
                         ));
                         packed_attrs.push((
                             self.get_or_create_timeline_attr_key(
                                 "timeline.ticks-per-sec".to_string(),
                             )
-                            .await
-                            .unwrap(),
+                            .await?,
                             AttrVal::Integer(ticks_per_sec.into()),
                         ));
                         packed_attrs.push((
                             self.get_or_create_timeline_attr_key("timeline.device-id".to_string())
-                                .await
-                                .unwrap(),
+                                .await?,
                             // TODO: this includes array syntax in the ID
                             AttrVal::String(format!("{:x?}", device_id)),
                         ));
-                        self.client.timeline_metadata(packed_attrs).await.unwrap();
+                        self.client
+                            .timeline_metadata(packed_attrs)
+                            .await
+                            .context("send packed timeline metadata")?;
                     }
                 }
             }
@@ -293,7 +305,7 @@ impl TracingModalityLense {
     async fn get_or_create_timeline_attr_key(
         &mut self,
         key: String,
-    ) -> Result<TimelineAttrKey, ()> {
+    ) -> Result<TimelineAttrKey, IngestError> {
         if let Some(id) = self.timeline_keys.get(&key) {
             return Ok(*id);
         }
@@ -302,14 +314,17 @@ impl TracingModalityLense {
             .client
             .timeline_attr_key(key.clone())
             .await
-            .expect("create timeline attr key");
+            .context("define timeline attr key")?;
 
         self.timeline_keys.insert(key, interned_key);
 
         Ok(interned_key)
     }
 
-    async fn get_or_create_event_attr_key(&mut self, key: String) -> Result<EventAttrKey, ()> {
+    async fn get_or_create_event_attr_key(
+        &mut self,
+        key: String,
+    ) -> Result<EventAttrKey, IngestError> {
         if let Some(id) = self.event_keys.get(&key) {
             return Ok(*id);
         }
@@ -318,7 +333,7 @@ impl TracingModalityLense {
             .client
             .event_attr_key(key.clone())
             .await
-            .expect("create timeline attr key");
+            .context("define event attr key")?;
 
         self.event_keys.insert(key, interned_key);
 
@@ -331,7 +346,7 @@ impl TracingModalityLense {
         metadata: SerializeMetadata<'a>,
         mut records: RecordMap<'a>,
         tick: u64,
-    ) {
+    ) -> Result<(), IngestError> {
         let name = records
             .remove(&"modality.name".into())
             .or_else(|| records.remove(&"message".into()))
@@ -339,16 +354,14 @@ impl TracingModalityLense {
             .unwrap_or_else(|| metadata.name.as_str().into());
         packed_attrs.push((
             self.get_or_create_event_attr_key("event.name".to_string())
-                .await
-                .unwrap(),
+                .await?,
             name,
         ));
 
         // This duplicates the data from `source_file` and `source_line`.
         //packed_attrs.push((
         //    self.get_or_create_event_attr_key("event.metadata.target".to_string())
-        //        .await
-        //        .unwrap(),
+        //        .await?,
         //    AttrVal::String(metadata.target.to_string()),
         //));
 
@@ -358,8 +371,7 @@ impl TracingModalityLense {
             .unwrap_or_else(|| format!("{:?}", metadata.level).into());
         packed_attrs.push((
             self.get_or_create_event_attr_key("event.severity".to_string())
-                .await
-                .unwrap(),
+                .await?,
             severity,
         ));
 
@@ -370,8 +382,7 @@ impl TracingModalityLense {
         if let Some(module_path) = module_path {
             packed_attrs.push((
                 self.get_or_create_event_attr_key("event.module_path".to_string())
-                    .await
-                    .unwrap(),
+                    .await?,
                 module_path,
             ));
         }
@@ -383,8 +394,7 @@ impl TracingModalityLense {
         if let Some(source_file) = source_file {
             packed_attrs.push((
                 self.get_or_create_event_attr_key("event.source_file".to_string())
-                    .await
-                    .unwrap(),
+                    .await?,
                 source_file,
             ));
         }
@@ -396,31 +406,27 @@ impl TracingModalityLense {
         if let Some(source_line) = source_line {
             packed_attrs.push((
                 self.get_or_create_event_attr_key("event.source_line".to_string())
-                    .await
-                    .unwrap(),
+                    .await?,
                 source_line,
             ));
         }
 
         packed_attrs.push((
             self.get_or_create_event_attr_key("event.logical_time".to_string())
-                .await
-                .unwrap(),
+                .await?,
             AttrVal::LogicalTime(LogicalTime::unary(tick)),
         ));
 
         // These 2 duplicate the `kind` field
         //packed_attrs.push((
         //    self.get_or_create_event_attr_key("event.metadata.is_span".to_string())
-        //        .await
-        //        .unwrap(),
+        //        .await?,
         //    AttrVal::Bool(metadata.is_span),
         //));
 
         //packed_attrs.push((
         //    self.get_or_create_event_attr_key("event.metadata.is_event".to_string())
-        //        .await
-        //        .unwrap(),
+        //        .await?,
         //    AttrVal::Bool(metadata.is_event),
         //));
 
@@ -438,11 +444,10 @@ impl TracingModalityLense {
                 format!("event.payload.{}", name.as_str())
             };
 
-            packed_attrs.push((
-                self.get_or_create_event_attr_key(key).await.unwrap(),
-                attrval,
-            ));
+            packed_attrs.push((self.get_or_create_event_attr_key(key).await?, attrval));
         }
+
+        Ok(())
     }
 }
 

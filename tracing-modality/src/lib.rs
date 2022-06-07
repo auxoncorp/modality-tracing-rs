@@ -19,6 +19,10 @@
 //! Some basic configuration options are also available to be set at init with
 //! [`TracingModality::init_with_options`].
 
+// required for above example, showing main isn't needless, it shows the context of where this will
+// (almost) always be called from
+#![allow(clippy::needless_doctest_main)]
+
 use thiserror::Error;
 use tracing_core::Dispatch;
 use tracing_serde_modality_ingest::options::GLOBAL_OPTIONS;

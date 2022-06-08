@@ -3,19 +3,21 @@ name = "tracing-modality"
 version = "0.1.0"
 edition = "2021"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
 serde_json = "1"
 tokio = "1"
 thiserror = "1"
 anyhow = "1"
-tracing-serde-modality-ingest = { "path" = "../tracing-serde-modality-ingest" }
-tracing-serde-subscriber = { "path" = "../tracing-serde-subscriber" }
-tracing-subscriber = { "path" = "../../tracing-playground/tracing/tracing-subscriber" }
-tracing-core = { "path" = "../../tracing-playground/tracing/tracing-core" }
-tracing = { "path" = "../../tracing-playground/tracing/tracing" }
-modality-ingest-protocol = { path = "../../modality-sdk/client-libraries/rust/modality-ingest-client/" }
+tracing = "0.1"
+tracing-core = "0.1.27"
+
+[dependencies.tracing-serde-modality-ingest]
+# NOTE: Path dep is acceptable - inside this repo
+path = "../tracing-serde-modality-ingest"
+
+[dependencies.tracing-serde-subscriber]
+# NOTE: Path dep is acceptable - inside this repo
+path = "../tracing-serde-subscriber"
 
 [dev-dependencies]
 # used for "collatz" example

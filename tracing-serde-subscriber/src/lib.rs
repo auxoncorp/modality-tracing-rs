@@ -1,7 +1,14 @@
 pub use tracing_serde_modality_ingest::TimelineId;
 pub use tracing_serde_wire::Packet;
 
-use std::{fmt::Debug, num::NonZeroU64, sync::RwLock, thread, thread_local, time::Instant};
+use std::{
+    fmt::Debug,
+    num::NonZeroU64,
+    sync::atomic::{AtomicU64, Ordering},
+    sync::RwLock,
+    thread, thread_local,
+    time::Instant,
+};
 
 use once_cell::sync::Lazy;
 use tokio::runtime::Runtime;
@@ -12,6 +19,7 @@ use tracing_serde_structured::{AsSerde, CowString, RecordMap, SerializeValue};
 use tracing_serde_wire::TracingWire;
 
 static START: Lazy<Instant> = Lazy::new(Instant::now);
+static NEXT_SPAN_ID: AtomicU64 = AtomicU64::new(1);
 
 thread_local! {
     static SUBSCRIBER: Lazy<RwLock<TSSubscriber>> = Lazy::new(|| {
@@ -30,7 +38,6 @@ thread_local! {
         RwLock::new(TSSubscriber {
             rt,
             lense,
-            id: 1,
         })
     });
 }
@@ -39,21 +46,19 @@ pub fn timeline_id() -> TimelineId {
     SUBSCRIBER.with(|c| c.read().unwrap().lense.timeline_id())
 }
 
+fn get_next_id() -> Id {
+    loop {
+        // ordering of IDs doesn't matter, only uniqueness, use relaxed ordering
+        let id = NEXT_SPAN_ID.fetch_add(1, Ordering::Relaxed);
+        if let Some(id) = NonZeroU64::new(id) {
+            return Id::from_non_zero_u64(id);
+        }
+    }
+}
+
 pub struct TSSubscriber {
     lense: TracingModalityLense,
     rt: Runtime,
-    id: u64,
-}
-
-impl TSSubscriber {
-    fn get_next_id(&mut self) -> Id {
-        loop {
-            self.id = self.id.wrapping_add(1);
-            if let Some(id) = NonZeroU64::new(self.id) {
-                return Id::from_non_zero_u64(id);
-            }
-        }
-    }
 }
 
 impl TSSubscriber {
@@ -64,7 +69,7 @@ impl TSSubscriber {
     }
 
     fn new_span(&mut self, span: &tracing_core::span::Attributes<'_>) -> tracing_core::span::Id {
-        let id = self.get_next_id();
+        let id = get_next_id();
 
         let mut visitor = RecordMapBuilder::new();
 

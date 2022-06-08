@@ -8,7 +8,7 @@ use modality_ingest_protocol::{
 };
 use std::collections::HashMap;
 use thiserror::Error;
-use tracing_serde::{
+use tracing_serde_structured::{
     DebugRecord, RecordMap, SerializeId, SerializeMetadata, SerializeRecord, SerializeRecordFields,
     SerializeValue,
 };

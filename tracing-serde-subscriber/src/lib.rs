@@ -1,15 +1,15 @@
-pub use tracing_serde_wire::Packet;
 pub use tracing_serde_modality_ingest::TimelineId;
+pub use tracing_serde_wire::Packet;
 
 use std::{fmt::Debug, num::NonZeroU64, sync::RwLock, thread, thread_local, time::Instant};
 
-use tracing_core::{field::Visit, span::Id, Subscriber, Field};
 use once_cell::sync::Lazy;
 use tokio::runtime::Runtime;
+use tracing_core::{field::Visit, span::Id, Field, Subscriber};
 
+use tracing_serde_modality_ingest::{options::GLOBAL_OPTIONS, TracingModalityLense};
 use tracing_serde_structured::{AsSerde, CowString, RecordMap, SerializeValue};
 use tracing_serde_wire::TracingWire;
-use tracing_serde_modality_ingest::{options::GLOBAL_OPTIONS, TracingModalityLense};
 
 static START: Lazy<Instant> = Lazy::new(Instant::now);
 

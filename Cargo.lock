@@ -301,7 +301,7 @@ dependencies = [
 [[package]]
 name = "modality-ingest-protocol"
 version = "0.1.0"
-source = "git+ssh://git@github.com/auxoncorp/modality-sdk.git?branch=qol-improvements#b39f8db600821c28e7bac002838261d3a2001d99"
+source = "git+ssh://git@github.com/auxoncorp/modality-sdk.git?branch=main#f76358246ad632551856ed0aebfe655a56f86988"
 dependencies = [
  "minicbor",
  "minicbor-io",

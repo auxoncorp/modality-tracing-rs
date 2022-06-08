@@ -21,12 +21,8 @@ anyhow = "1"
 # ```
 #
 # Then try again.
-#
-# This can be removed once we publish the repo. This is done
-# to avoid "local folder" problems, as this is a package outside
-# the current repo.
 git = "ssh://git@github.com/auxoncorp/modality-sdk.git"
-branch = "qol-improvements"
+branch = "main"
 
 [dependencies.tracing-serde-structured]
 version = "0.1"

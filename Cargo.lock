@@ -748,6 +748,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7709595b8878a4965ce5e87ebf880a7d39c9afc6837721b21a5a816a8117d921"
 dependencies = [
  "once_cell",
+ "valuable",
 ]
 
 [[package]]
@@ -784,16 +785,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "tracing-serde"
-version = "0.2.0"
-dependencies = [
- "hash32",
- "heapless",
- "serde",
- "tracing-core 0.2.0",
-]
-
-[[package]]
 name = "tracing-serde-modality-ingest"
 version = "0.1.0"
 dependencies = [
@@ -804,7 +795,7 @@ dependencies = [
  "thiserror",
  "tokio",
  "tracing-serde-structured",
- "tracing-serde-wire 0.1.0 (git+https://github.com/jamesmunns/tracing-serde-wire?branch=main)",
+ "tracing-serde-wire",
 ]
 
 [[package]]
@@ -825,18 +816,10 @@ version = "0.1.0"
 dependencies = [
  "once_cell",
  "tokio",
- "tracing-core 0.2.0",
- "tracing-serde",
+ "tracing-core 0.1.27",
  "tracing-serde-modality-ingest",
- "tracing-serde-wire 0.1.0",
-]
-
-[[package]]
-name = "tracing-serde-wire"
-version = "0.1.0"
-dependencies = [
- "serde",
- "tracing-serde",
+ "tracing-serde-structured",
+ "tracing-serde-wire",
 ]
 
 [[package]]
@@ -874,6 +857,12 @@ checksum = "bc5cf98d8186244414c848017f0e2676b3fcb46807f6668a97dfe67359a3c4b7"
 dependencies = [
  "getrandom",
 ]
+
+[[package]]
+name = "valuable"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "830b7e5d4d90034032940e4ace0d9a9a057e7a45cd94e6c007832e39edb82f6d"
 
 [[package]]
 name = "vcell"

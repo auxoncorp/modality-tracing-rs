@@ -70,6 +70,7 @@ impl TracingModality {
     pub fn init_with_options(opt: Options) -> Result<Self, InitError> {
         let mut opts = GLOBAL_OPTIONS.write().unwrap();
         *opts = opt;
+        drop(opts);
 
         Self::init()
     }

@@ -1,4 +1,3 @@
-use modality_ingest_protocol::types::AttrVal; // TODO: Make attrval conversions automatic & remove this
 use tracing::{debug, error, event, info, span, trace, warn, Level};
 use tracing_modality::{Options, TracingModality};
 
@@ -6,7 +5,7 @@ fn main() {
     TracingModality::init_with_options(
         Options::new()
             .with_name("basic example")
-            .with_metadata("build-id", AttrVal::Integer(0)),
+            .with_metadata("build-id", 0i64.into()),
     )
     .expect("init tracing");
 

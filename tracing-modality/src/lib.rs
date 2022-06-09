@@ -8,6 +8,7 @@
 //!
 //! use tracing::debug;
 //! use tracing_modality::TracingModality;
+//! use tracing::info;
 //!
 //! fn main() {
 //!     TracingModality::init().expect("init");
@@ -57,7 +58,7 @@ impl TracingModality {
     /// Initialize with default options and set as the global default tracer.
     pub fn init() -> Result<Self, InitError> {
         let disp = Dispatch::new(TSCollector);
-        tracing::dispatch::set_global_default(disp).unwrap();
+        tracing::dispatcher::set_global_default(disp).unwrap();
 
         // Force a log to ensure a connection can be made, and to avoid further deferring the main thread.
         tracing::event!(tracing::Level::TRACE, "Modality connected!");
@@ -69,6 +70,7 @@ impl TracingModality {
     pub fn init_with_options(opt: Options) -> Result<Self, InitError> {
         let mut opts = GLOBAL_OPTIONS.write().unwrap();
         *opts = opt;
+        drop(opts);
 
         Self::init()
     }

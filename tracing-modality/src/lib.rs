@@ -57,7 +57,7 @@ pub struct TracingModality {}
 impl TracingModality {
     /// Initialize with default options and set as the global default tracer.
     pub fn init() -> Result<Self, InitError> {
-        let disp = Dispatch::new(TSSubscriber);
+        let disp = Dispatch::new(TSSubscriber::new());
         tracing::dispatcher::set_global_default(disp).unwrap();
 
         // Force a log to ensure a connection can be made, and to avoid further deferring the main thread.

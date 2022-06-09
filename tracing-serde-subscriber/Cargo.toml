@@ -22,3 +22,6 @@ version = "0.1.27"
 
 [dependencies.tracing-serde-structured]
 version = "0.1.1"
+
+[dependencies.tracing-subscriber]
+version = "0.3"

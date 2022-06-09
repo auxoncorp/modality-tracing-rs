@@ -1,14 +1,7 @@
 pub use tracing_serde_modality_ingest::TimelineId;
 pub use tracing_serde_wire::Packet;
 
-use std::{
-    fmt::Debug,
-    num::NonZeroU64,
-    sync::atomic::{AtomicU64, Ordering},
-    sync::RwLock,
-    thread, thread_local,
-    time::Instant,
-};
+use std::{fmt::Debug, sync::RwLock, thread, thread_local, time::Instant};
 
 use once_cell::sync::Lazy;
 use tokio::runtime::Runtime;
@@ -17,13 +10,17 @@ use tracing_core::{
     span::{Attributes, Id, Record},
     Field, Subscriber,
 };
+use tracing_subscriber::{
+    layer::{Context, Layer},
+    prelude::*,
+    registry::Registry,
+};
 
 use tracing_serde_modality_ingest::{options::GLOBAL_OPTIONS, TracingModalityLense};
 use tracing_serde_structured::{AsSerde, CowString, RecordMap, SerializeValue};
 use tracing_serde_wire::TracingWire;
 
 static START: Lazy<Instant> = Lazy::new(Instant::now);
-static NEXT_SPAN_ID: AtomicU64 = AtomicU64::new(1);
 
 thread_local! {
     static HANDLER: Lazy<RwLock<TSHandler>> = Lazy::new(|| {
@@ -50,16 +47,6 @@ pub fn timeline_id() -> TimelineId {
     HANDLER.with(|c| c.read().unwrap().lense.timeline_id())
 }
 
-fn get_next_id() -> Id {
-    loop {
-        // ordering of IDs doesn't matter, only uniqueness, use relaxed ordering
-        let id = NEXT_SPAN_ID.fetch_add(1, Ordering::Relaxed);
-        if let Some(id) = NonZeroU64::new(id) {
-            return Id::from_non_zero_u64(id);
-        }
-    }
-}
-
 pub struct TSHandler {
     lense: TracingModalityLense,
     rt: Runtime,
@@ -79,17 +66,26 @@ impl TSHandler {
     }
 }
 
+#[non_exhaustive] // prevents raw construction
 pub struct TSSubscriber;
 
-impl Subscriber for TSSubscriber {
-    fn enabled(&self, _metadata: &tracing_core::Metadata<'_>) -> bool {
+impl TSSubscriber {
+    #[allow(clippy::new_ret_no_self)]
+    // this doesn't technically build a `Self`, but that's the way people should think of it
+    pub fn new() -> impl Subscriber {
+        Registry::default().with(TSLayer)
+    }
+}
+
+pub struct TSLayer;
+
+impl<S: Subscriber> Layer<S> for TSLayer {
+    fn enabled(&self, _metadata: &tracing_core::Metadata<'_>, _ctx: Context<'_, S>) -> bool {
         // always enabled for all levels
         true
     }
 
-    fn new_span(&self, attrs: &Attributes<'_>) -> Id {
-        let id = get_next_id();
-
+    fn on_new_span(&self, attrs: &Attributes<'_>, id: &Id, _ctx: Context<'_, S>) {
         let mut visitor = RecordMapBuilder::new();
 
         attrs.record(&mut visitor);
@@ -100,12 +96,10 @@ impl Subscriber for TSSubscriber {
             values: visitor.values().into(),
         };
 
-        HANDLER.with(move |c| c.write().unwrap().handle_message(msg));
-
-        id
+        HANDLER.with(move |c| c.write().unwrap().handle_message(msg))
     }
 
-    fn record(&self, span: &Id, values: &Record<'_>) {
+    fn on_record(&self, span: &Id, values: &Record<'_>, _ctx: Context<'_, S>) {
         let msg = TracingWire::Record {
             span: span.as_serde(),
             values: values.as_serde().to_owned(),
@@ -114,7 +108,7 @@ impl Subscriber for TSSubscriber {
         HANDLER.with(move |c| c.write().unwrap().handle_message(msg))
     }
 
-    fn record_follows_from(&self, span: &Id, follows: &Id) {
+    fn on_follows_from(&self, span: &Id, follows: &Id, _ctx: Context<'_, S>) {
         let msg = TracingWire::RecordFollowsFrom {
             span: span.as_serde(),
             follows: follows.as_serde().to_owned(),
@@ -123,19 +117,19 @@ impl Subscriber for TSSubscriber {
         HANDLER.with(move |c| c.write().unwrap().handle_message(msg))
     }
 
-    fn event(&self, event: &tracing_core::Event<'_>) {
+    fn on_event(&self, event: &tracing_core::Event<'_>, _ctx: Context<'_, S>) {
         let msg = TracingWire::Event(event.as_serde().to_owned());
 
         HANDLER.with(move |c| c.write().unwrap().handle_message(msg))
     }
 
-    fn enter(&self, span: &Id) {
+    fn on_enter(&self, span: &Id, _ctx: Context<'_, S>) {
         let msg = TracingWire::Enter(span.as_serde());
 
         HANDLER.with(move |c| c.write().unwrap().handle_message(msg))
     }
 
-    fn exit(&self, span: &Id) {
+    fn on_exit(&self, span: &Id, _ctx: Context<'_, S>) {
         let msg = TracingWire::Exit(span.as_serde());
 
         HANDLER.with(move |c| c.write().unwrap().handle_message(msg))

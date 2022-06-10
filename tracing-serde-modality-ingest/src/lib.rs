@@ -6,7 +6,13 @@ use modality_ingest_protocol::{
     types::{AttrVal, BigInt, EventAttrKey, LogicalTime, TimelineAttrKey, Uuid},
     IngestError as SdkIngestError,
 };
-use std::collections::HashMap;
+use once_cell::sync::Lazy;
+use std::{
+    borrow::Borrow,
+    collections::HashMap,
+    ops::{Deref, DerefMut},
+    sync::RwLock,
+};
 use thiserror::Error;
 use tracing_serde_structured::{
     DebugRecord, RecordMap, SerializeId, SerializeMetadata, SerializeRecord, SerializeRecordFields,
@@ -16,6 +22,9 @@ use tracing_serde_wire::{Packet, TWOther, TracingWire};
 
 pub use modality_ingest_protocol::types::TimelineId;
 pub use options::Options;
+
+// spans can be defined on any thread and then sent to another and entered/etc, track globally
+static SPAN_NAMES: Lazy<RwLock<HashMap<u64, String>>> = Lazy::new(|| RwLock::new(HashMap::new()));
 
 #[derive(Debug, Error)]
 pub enum ConnectError {
@@ -107,6 +116,21 @@ impl TracingModalityLense {
                     }
                     SerializeRecord::De(record_map) => record_map,
                 };
+
+                {
+                    // store name for future use
+                    let name = records
+                        .get(&"modality.name".into())
+                        .or_else(|| records.get(&"message".into()))
+                        .map(|n| format!("{:?}", n))
+                        .unwrap_or_else(|| attrs.metadata.name.to_string());
+
+                    SPAN_NAMES
+                        .write()
+                        .expect("span name lock poisoned, this is a bug")
+                        .deref_mut()
+                        .insert(id.id.get(), name);
+                }
 
                 let mut packed_attrs = Vec::new();
 
@@ -202,6 +226,24 @@ impl TracingModalityLense {
             TracingWire::Enter(SerializeId { id }) => {
                 let mut packed_attrs = Vec::new();
 
+                {
+                    // get stored span name
+                    let name = SPAN_NAMES
+                        .read()
+                        .expect("span name lock poisoned, this is a bug")
+                        .deref()
+                        .get(&id.get())
+                        .map(|n| format!("enter: {}", n));
+
+                    if let Some(name) = name {
+                        packed_attrs.push((
+                            self.get_or_create_event_attr_key("event.name".to_string())
+                                .await?,
+                            AttrVal::String(name),
+                        ));
+                    }
+                };
+
                 packed_attrs.push((
                     self.get_or_create_event_attr_key("event.kind".to_string())
                         .await?,
@@ -228,6 +270,24 @@ impl TracingModalityLense {
             TracingWire::Exit(SerializeId { id }) => {
                 let mut packed_attrs = Vec::new();
 
+                {
+                    // get stored span name
+                    let name = SPAN_NAMES
+                        .read()
+                        .expect("span name lock poisoned, this is a bug")
+                        .deref()
+                        .get(&id.get())
+                        .map(|n| format!("exit: {}", n));
+
+                    if let Some(name) = name {
+                        packed_attrs.push((
+                            self.get_or_create_event_attr_key("event.name".to_string())
+                                .await?,
+                            AttrVal::String(name),
+                        ));
+                    }
+                };
+
                 packed_attrs.push((
                     self.get_or_create_event_attr_key("event.kind".to_string())
                         .await?,
@@ -251,8 +311,23 @@ impl TracingModalityLense {
                     .await
                     .context("send packed event")?;
             }
-            TracingWire::Close(SerializeId { id: _ }) => {}
-            TracingWire::IdClone { old: _, new: _ } => {}
+            TracingWire::Close(SerializeId { id }) => {
+                SPAN_NAMES
+                    .write()
+                    .expect("span name lock poisoned, this is a bug")
+                    .deref_mut()
+                    .remove(&id.get());
+            }
+            TracingWire::IdClone { old, new } => {
+                let mut span_names = SPAN_NAMES
+                    .write()
+                    .expect("span name lock poisoned, this is a bug");
+
+                let name = span_names.deref().get(&old.id.get()).cloned();
+                if let Some(name) = name {
+                    span_names.deref_mut().insert(new.id.get(), name);
+                }
+            }
             TracingWire::Other(two) => {
                 match two {
                     TWOther::MessageDiscarded => {
@@ -456,8 +531,8 @@ impl TracingModalityLense {
 
 // `SerializeValue` is `#[nonexhaustive]`, returns `None` if they add a type we don't handle and
 // fail to serialize it as a stringified json value
-fn tracing_value_to_attr_val(value: SerializeValue) -> Option<AttrVal> {
-    Some(match value {
+fn tracing_value_to_attr_val<'a, V: Borrow<SerializeValue<'a>>>(value: V) -> Option<AttrVal> {
+    Some(match value.borrow() {
         SerializeValue::Debug(dr) => match dr {
             // TODO: there's an opertunity here to pull out message format
             // parameters raw here instead of shipping a formatted string
@@ -465,10 +540,10 @@ fn tracing_value_to_attr_val(value: SerializeValue) -> Option<AttrVal> {
             DebugRecord::De(s) => AttrVal::String(s.to_string()),
         },
         SerializeValue::Str(s) => AttrVal::String(s.to_string()),
-        SerializeValue::F64(n) => AttrVal::Float(n),
-        SerializeValue::I64(n) => AttrVal::Integer(n),
-        SerializeValue::U64(n) => BigInt::new_attr_val(n.into()),
-        SerializeValue::Bool(b) => AttrVal::Bool(b),
+        SerializeValue::F64(n) => AttrVal::Float(*n),
+        SerializeValue::I64(n) => AttrVal::Integer(*n),
+        SerializeValue::U64(n) => BigInt::new_attr_val((*n).into()),
+        SerializeValue::Bool(b) => AttrVal::Bool(*b),
         unknown_sv => {
             if let Ok(sval) = serde_json::to_string(&unknown_sv) {
                 AttrVal::String(sval)

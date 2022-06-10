@@ -134,6 +134,21 @@ impl<S: Subscriber> Layer<S> for TSLayer {
 
         HANDLER.with(move |c| c.write().unwrap().handle_message(msg))
     }
+
+    fn on_id_change(&self, old: &Id, new: &Id, _ctx: Context<'_, S>) {
+        let msg = TracingWire::IdClone {
+            old: old.as_serde(),
+            new: new.as_serde(),
+        };
+
+        HANDLER.with(move |c| c.write().unwrap().handle_message(msg))
+    }
+
+    fn on_close(&self, span: Id, _ctx: Context<'_, S>) {
+        let msg = TracingWire::Close(span.as_serde());
+
+        HANDLER.with(move |c| c.write().unwrap().handle_message(msg))
+    }
 }
 
 struct RecordMapBuilder<'a> {

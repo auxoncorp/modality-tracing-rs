@@ -811,7 +811,7 @@ dependencies = [
 [[package]]
 name = "tracing-serde-wire"
 version = "0.1.0"
-source = "git+https://github.com/jamesmunns/tracing-serde-wire?branch=main#24a3c8a3c27940876ccf6390ce9b6a8593789724"
+source = "git+https://github.com/jamesmunns/tracing-serde-wire?branch=main#3cb84b321e311c02c77ddf502069b182287347c2"
 dependencies = [
  "serde",
  "tracing-serde-structured",

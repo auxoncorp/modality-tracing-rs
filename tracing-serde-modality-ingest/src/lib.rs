@@ -251,6 +251,8 @@ impl TracingModalityLense {
                     .await
                     .context("send packed event")?;
             }
+            TracingWire::Close(SerializeId { id: _ }) => {}
+            TracingWire::IdClone { old: _, new: _ } => {}
             TracingWire::Other(two) => {
                 match two {
                     TWOther::MessageDiscarded => {
@@ -297,6 +299,7 @@ impl TracingModalityLense {
                     }
                 }
             }
+            _ => (),
         }
 
         Ok(())

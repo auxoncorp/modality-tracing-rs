@@ -113,7 +113,7 @@ impl TracingModalityLense {
                 let kind = records
                     .remove(&"modality.kind".into())
                     .and_then(tracing_value_to_attr_val)
-                    .unwrap_or_else(|| "span-defined".into());
+                    .unwrap_or_else(|| "span:defined".into());
                 packed_attrs.push((
                     self.get_or_create_event_attr_key("event.kind".to_string())
                         .await?,
@@ -125,7 +125,7 @@ impl TracingModalityLense {
                     .and_then(tracing_value_to_attr_val)
                     .unwrap_or_else(|| BigInt::new_attr_val(id.id.get() as i128));
                 packed_attrs.push((
-                    self.get_or_create_event_attr_key("event.span-id".to_string())
+                    self.get_or_create_event_attr_key("event.span_id".to_string())
                         .await?,
                     span_id,
                 ));
@@ -205,11 +205,11 @@ impl TracingModalityLense {
                 packed_attrs.push((
                     self.get_or_create_event_attr_key("event.kind".to_string())
                         .await?,
-                    AttrVal::String("span-enter".to_string()),
+                    AttrVal::String("span:enter".to_string()),
                 ));
 
                 packed_attrs.push((
-                    self.get_or_create_event_attr_key("event.span-id".to_string())
+                    self.get_or_create_event_attr_key("event.span_id".to_string())
                         .await?,
                     BigInt::new_attr_val(u64::from(id).into()),
                 ));
@@ -231,11 +231,11 @@ impl TracingModalityLense {
                 packed_attrs.push((
                     self.get_or_create_event_attr_key("event.kind".to_string())
                         .await?,
-                    AttrVal::String("span-exit".to_string()),
+                    AttrVal::String("span:exit".to_string()),
                 ));
 
                 packed_attrs.push((
-                    self.get_or_create_event_attr_key("event.span-id".to_string())
+                    self.get_or_create_event_attr_key("event.span_id".to_string())
                         .await?,
                     BigInt::new_attr_val(u64::from(id).into()),
                 ));
@@ -259,7 +259,7 @@ impl TracingModalityLense {
                         packed_attrs.push((
                             self.get_or_create_event_attr_key("event.kind".to_string())
                                 .await?,
-                            AttrVal::String("message-discarded".to_string()),
+                            AttrVal::String("message_discarded".to_string()),
                         ));
                         self.client
                             .event(pkt.tick.into(), packed_attrs)
@@ -273,19 +273,19 @@ impl TracingModalityLense {
                     } => {
                         let mut packed_attrs = Vec::new();
                         packed_attrs.push((
-                            self.get_or_create_timeline_attr_key("timeline.clock-id".to_string())
+                            self.get_or_create_timeline_attr_key("timeline.clock_id".to_string())
                                 .await?,
                             AttrVal::Integer(clock_id.into()),
                         ));
                         packed_attrs.push((
                             self.get_or_create_timeline_attr_key(
-                                "timeline.ticks-per-sec".to_string(),
+                                "timeline.ticks_per_sec".to_string(),
                             )
                             .await?,
                             AttrVal::Integer(ticks_per_sec.into()),
                         ));
                         packed_attrs.push((
-                            self.get_or_create_timeline_attr_key("timeline.device-id".to_string())
+                            self.get_or_create_timeline_attr_key("timeline.device_id".to_string())
                                 .await?,
                             // TODO: this includes array syntax in the ID
                             AttrVal::String(format!("{:x?}", device_id)),

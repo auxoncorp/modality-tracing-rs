@@ -48,14 +48,14 @@ pub enum IngestError {
     UnexpectedFailure(#[from] anyhow::Error),
 }
 
-pub struct TracingModalityLense {
+pub struct TracingModality {
     client: IngestClient<BoundTimelineState>,
     event_keys: HashMap<String, EventAttrKey>,
     timeline_keys: HashMap<String, TimelineAttrKey>,
     timeline_id: TimelineId,
 }
 
-impl TracingModalityLense {
+impl TracingModality {
     pub async fn connect() -> Result<Self, ConnectError> {
         let opt = Options::default();
 
@@ -80,7 +80,7 @@ impl TracingModalityLense {
             .await
             .context("open new timeline")?;
 
-        let mut lense = Self {
+        let mut tracer = Self {
             client,
             event_keys: HashMap::new(),
             timeline_keys: HashMap::new(),
@@ -88,19 +88,19 @@ impl TracingModalityLense {
         };
 
         for (key, value) in options.metadata {
-            let timeline_key_name = lense
+            let timeline_key_name = tracer
                 .get_or_create_timeline_attr_key(key)
                 .await
                 .context("get or define timeline attr key")?;
 
-            lense
+            tracer
                 .client
                 .timeline_metadata([(timeline_key_name, value)])
                 .await
                 .context("apply timeline metadata")?;
         }
 
-        Ok(lense)
+        Ok(tracer)
     }
 
     pub fn timeline_id(&self) -> TimelineId {

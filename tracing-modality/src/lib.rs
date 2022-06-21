@@ -28,7 +28,7 @@ use thiserror::Error;
 use tracing_core::Dispatch;
 use tracing_serde_modality_ingest::options::GLOBAL_OPTIONS;
 use tracing_serde_modality_ingest::ConnectError;
-use tracing_serde_subscriber::TSCollector;
+use tracing_serde_subscriber::TSSubscriber;
 
 pub use tracing_serde_modality_ingest::TimelineId;
 
@@ -57,7 +57,7 @@ pub struct TracingModality {}
 impl TracingModality {
     /// Initialize with default options and set as the global default tracer.
     pub fn init() -> Result<Self, InitError> {
-        let disp = Dispatch::new(TSCollector);
+        let disp = Dispatch::new(TSSubscriber::new());
         tracing::dispatcher::set_global_default(disp).unwrap();
 
         // Force a log to ensure a connection can be made, and to avoid further deferring the main thread.

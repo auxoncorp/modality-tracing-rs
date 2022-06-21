@@ -1,28 +1,29 @@
 pub use tracing_serde_modality_ingest::TimelineId;
 pub use tracing_serde_wire::Packet;
 
-use std::{
-    fmt::Debug,
-    num::NonZeroU64,
-    sync::atomic::{AtomicU64, Ordering},
-    sync::RwLock,
-    thread, thread_local,
-    time::Instant,
-};
+use std::{fmt::Debug, sync::RwLock, thread, thread_local, time::Instant};
 
 use once_cell::sync::Lazy;
 use tokio::runtime::Runtime;
-use tracing_core::{field::Visit, span::Id, Field, Subscriber};
+use tracing_core::{
+    field::Visit,
+    span::{Attributes, Id, Record},
+    Field, Subscriber,
+};
+use tracing_subscriber::{
+    layer::{Context, Layer},
+    prelude::*,
+    registry::Registry,
+};
 
 use tracing_serde_modality_ingest::{options::GLOBAL_OPTIONS, TracingModalityLense};
 use tracing_serde_structured::{AsSerde, CowString, RecordMap, SerializeValue};
 use tracing_serde_wire::TracingWire;
 
 static START: Lazy<Instant> = Lazy::new(Instant::now);
-static NEXT_SPAN_ID: AtomicU64 = AtomicU64::new(1);
 
 thread_local! {
-    static SUBSCRIBER: Lazy<RwLock<TSSubscriber>> = Lazy::new(|| {
+    static HANDLER: Lazy<RwLock<TSHandler>> = Lazy::new(|| {
         let opts = GLOBAL_OPTIONS.read().unwrap().clone();
 
         let cur = thread::current();
@@ -35,7 +36,7 @@ thread_local! {
             handle.block_on(async { TracingModalityLense::connect_with_options(opts).await.expect("connect") })
         };
 
-        RwLock::new(TSSubscriber {
+        RwLock::new(TSHandler {
             rt,
             lense,
         })
@@ -43,173 +44,110 @@ thread_local! {
 }
 
 pub fn timeline_id() -> TimelineId {
-    SUBSCRIBER.with(|c| c.read().unwrap().lense.timeline_id())
+    HANDLER.with(|c| c.read().unwrap().lense.timeline_id())
 }
 
-fn get_next_id() -> Id {
-    loop {
-        // ordering of IDs doesn't matter, only uniqueness, use relaxed ordering
-        let id = NEXT_SPAN_ID.fetch_add(1, Ordering::Relaxed);
-        if let Some(id) = NonZeroU64::new(id) {
-            return Id::from_non_zero_u64(id);
-        }
-    }
-}
-
-pub struct TSSubscriber {
+pub struct TSHandler {
     lense: TracingModalityLense,
     rt: Runtime,
 }
 
-impl TSSubscriber {
-    fn enabled(&self, _metadata: &tracing_core::Metadata<'_>) -> bool {
-        // Note: nothing to log here, this is a `query` whether the trace is active
-        // TODO: always enabled for now.
-        true
-    }
-
-    fn new_span(&mut self, span: &tracing_core::span::Attributes<'_>) -> tracing_core::span::Id {
-        let id = get_next_id();
-
-        let mut visitor = RecordMapBuilder::new();
-
-        span.record(&mut visitor);
-
+impl TSHandler {
+    fn handle_message(&mut self, message: TracingWire<'_>) {
+        let packet = Packet {
+            message,
+            // NOTE: will give inaccurate data if the program has run for more than 584942 years.
+            tick: START.elapsed().as_micros() as u64,
+        };
         self.rt
             .handle()
-            .block_on(async {
-                self.lense
-                    .handle_packet(Packet {
-                        message: TracingWire::NewSpan {
-                            id: id.as_serde(),
-                            attrs: span.as_serde().to_owned(),
-                            values: visitor.values().into(),
-                        },
-                        // NOTE: will give inaccurate data if the program has run for more than 584942 years.
-                        tick: START.elapsed().as_micros() as u64,
-                    })
-                    .await
-            })
-            .unwrap();
-
-        id
-    }
-
-    fn record(&mut self, span: &tracing_core::span::Id, values: &tracing_core::span::Record<'_>) {
-        self.rt
-            .handle()
-            .block_on(async {
-                self.lense
-                    .handle_packet(Packet {
-                        message: TracingWire::Record {
-                            span: span.as_serde(),
-                            values: values.as_serde().to_owned(),
-                        },
-                        // NOTE: will give inaccurate data if the program has run for more than 584942 years.
-                        tick: START.elapsed().as_micros() as u64,
-                    })
-                    .await
-            })
-            .unwrap();
-    }
-
-    fn record_follows_from(
-        &mut self,
-        span: &tracing_core::span::Id,
-        follows: &tracing_core::span::Id,
-    ) {
-        self.rt
-            .handle()
-            .block_on(async {
-                self.lense
-                    .handle_packet(Packet {
-                        message: TracingWire::RecordFollowsFrom {
-                            span: span.as_serde(),
-                            follows: follows.as_serde().to_owned(),
-                        },
-                        // NOTE: will give inaccurate data if the program has run for more than 584942 years.
-                        tick: START.elapsed().as_micros() as u64,
-                    })
-                    .await
-            })
-            .unwrap();
-    }
-
-    fn event(&mut self, event: &tracing_core::Event<'_>) {
-        self.rt
-            .handle()
-            .block_on(async {
-                self.lense
-                    .handle_packet(Packet {
-                        message: TracingWire::Event(event.as_serde().to_owned()),
-                        // NOTE: will give inaccurate data if the program has run for more than 584942 years.
-                        tick: START.elapsed().as_micros() as u64,
-                    })
-                    .await
-            })
-            .unwrap();
-    }
-
-    fn enter(&mut self, span: &tracing_core::span::Id) {
-        self.rt
-            .handle()
-            .block_on(async {
-                self.lense
-                    .handle_packet(Packet {
-                        message: TracingWire::Enter(span.as_serde()),
-                        // NOTE: will give inaccurate data if the program has run for more than 584942 years.
-                        tick: START.elapsed().as_micros() as u64,
-                    })
-                    .await
-            })
-            .unwrap();
-    }
-
-    fn exit(&mut self, span: &tracing_core::span::Id) {
-        self.rt
-            .handle()
-            .block_on(async {
-                self.lense
-                    .handle_packet(Packet {
-                        message: TracingWire::Exit(span.as_serde()),
-                        // NOTE: will give inaccurate data if the program has run for more than 584942 years.
-                        tick: START.elapsed().as_micros() as u64,
-                    })
-                    .await
-            })
+            .block_on(async { self.lense.handle_packet(packet).await })
             .unwrap();
     }
 }
 
-pub struct TSCollector;
+#[non_exhaustive] // prevents raw construction
+pub struct TSSubscriber;
 
-impl Subscriber for TSCollector {
-    fn enabled(&self, metadata: &tracing_core::Metadata<'_>) -> bool {
-        SUBSCRIBER.with(|c| c.read().unwrap().enabled(metadata))
+impl TSSubscriber {
+    #[allow(clippy::new_ret_no_self)]
+    // this doesn't technically build a `Self`, but that's the way people should think of it
+    pub fn new() -> impl Subscriber {
+        Registry::default().with(TSLayer)
+    }
+}
+
+pub struct TSLayer;
+
+impl<S: Subscriber> Layer<S> for TSLayer {
+    fn enabled(&self, _metadata: &tracing_core::Metadata<'_>, _ctx: Context<'_, S>) -> bool {
+        // always enabled for all levels
+        true
     }
 
-    fn new_span(&self, span: &tracing_core::span::Attributes<'_>) -> tracing_core::span::Id {
-        SUBSCRIBER.with(|c| c.write().unwrap().new_span(span))
+    fn on_new_span(&self, attrs: &Attributes<'_>, id: &Id, _ctx: Context<'_, S>) {
+        let mut visitor = RecordMapBuilder::new();
+
+        attrs.record(&mut visitor);
+
+        let msg = TracingWire::NewSpan {
+            id: id.as_serde(),
+            attrs: attrs.as_serde(),
+            values: visitor.values().into(),
+        };
+
+        HANDLER.with(move |c| c.write().unwrap().handle_message(msg))
     }
 
-    fn record(&self, span: &tracing_core::span::Id, values: &tracing_core::span::Record<'_>) {
-        SUBSCRIBER.with(|c| c.write().unwrap().record(span, values))
+    fn on_record(&self, span: &Id, values: &Record<'_>, _ctx: Context<'_, S>) {
+        let msg = TracingWire::Record {
+            span: span.as_serde(),
+            values: values.as_serde().to_owned(),
+        };
+
+        HANDLER.with(move |c| c.write().unwrap().handle_message(msg))
     }
 
-    fn record_follows_from(&self, span: &tracing_core::span::Id, follows: &tracing_core::span::Id) {
-        SUBSCRIBER.with(|c| c.write().unwrap().record_follows_from(span, follows))
+    fn on_follows_from(&self, span: &Id, follows: &Id, _ctx: Context<'_, S>) {
+        let msg = TracingWire::RecordFollowsFrom {
+            span: span.as_serde(),
+            follows: follows.as_serde().to_owned(),
+        };
+
+        HANDLER.with(move |c| c.write().unwrap().handle_message(msg))
     }
 
-    fn event(&self, event: &tracing_core::Event<'_>) {
-        SUBSCRIBER.with(|c| c.write().unwrap().event(event))
+    fn on_event(&self, event: &tracing_core::Event<'_>, _ctx: Context<'_, S>) {
+        let msg = TracingWire::Event(event.as_serde().to_owned());
+
+        HANDLER.with(move |c| c.write().unwrap().handle_message(msg))
     }
 
-    fn enter(&self, span: &tracing_core::span::Id) {
-        SUBSCRIBER.with(|c| c.write().unwrap().enter(span))
+    fn on_enter(&self, span: &Id, _ctx: Context<'_, S>) {
+        let msg = TracingWire::Enter(span.as_serde());
+
+        HANDLER.with(move |c| c.write().unwrap().handle_message(msg))
     }
 
-    fn exit(&self, span: &tracing_core::span::Id) {
-        SUBSCRIBER.with(|c| c.write().unwrap().exit(span))
+    fn on_exit(&self, span: &Id, _ctx: Context<'_, S>) {
+        let msg = TracingWire::Exit(span.as_serde());
+
+        HANDLER.with(move |c| c.write().unwrap().handle_message(msg))
+    }
+
+    fn on_id_change(&self, old: &Id, new: &Id, _ctx: Context<'_, S>) {
+        let msg = TracingWire::IdClone {
+            old: old.as_serde(),
+            new: new.as_serde(),
+        };
+
+        HANDLER.with(move |c| c.write().unwrap().handle_message(msg))
+    }
+
+    fn on_close(&self, span: Id, _ctx: Context<'_, S>) {
+        let msg = TracingWire::Close(span.as_serde());
+
+        HANDLER.with(move |c| c.write().unwrap().handle_message(msg))
     }
 }
 

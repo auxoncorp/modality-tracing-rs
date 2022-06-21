@@ -44,11 +44,11 @@ thread_local! {
 }
 
 pub fn timeline_id() -> TimelineId {
-    HANDLER.with(|c| c.read().unwrap().lense.timeline_id())
+    HANDLER.with(|c| c.read().unwrap().tracer.timeline_id())
 }
 
 pub struct TSHandler {
-    lense: TracingModalityLense,
+    tracer: TracingModality,
     rt: Runtime,
 }
 
@@ -61,7 +61,7 @@ impl TSHandler {
         };
         self.rt
             .handle()
-            .block_on(async { self.lense.handle_packet(packet).await })
+            .block_on(async { self.tracer.handle_packet(packet).await })
             .unwrap();
     }
 }

@@ -12,14 +12,16 @@ pub static GLOBAL_OPTIONS: Lazy<RwLock<Options>> = Lazy::new(|| RwLock::new(Opti
 /// Initialization options.
 #[derive(Clone)]
 pub struct Options {
-    pub(crate) auth: Option<String>,
+    pub(crate) auth: Option<Vec<u8>>,
     pub(crate) metadata: Vec<(String, AttrVal)>,
     pub(crate) server_addr: SocketAddr,
 }
 
 impl Options {
     pub fn new() -> Options {
-        let auth = std::env::var("MODALITY_LICENSE_KEY").ok();
+        let auth = std::env::var("MODALITY_AUTH_TOKEN")
+            .ok()
+            .and_then(|t| hex::decode(t).ok());
         let server_addr = ([127, 0, 0, 1], 14182).into();
         Options {
             auth,
@@ -28,14 +30,13 @@ impl Options {
         }
     }
 
-    /// Set an auth token to be provided to modality. Tokens should be stringish values of the format
-    /// `XXXXXX-XXXXXX-XXXXXX-XXXXXX-XXXXXX-V3`.
-    pub fn set_auth<S: AsRef<str>>(&mut self, auth: S) {
-        self.auth = Some(auth.as_ref().to_string());
+    /// Set an auth token to be provided to modality. Tokens should be a hex stringish value.
+    pub fn set_auth<S: AsRef<[u8]>>(&mut self, auth: S) {
+        self.auth = hex::decode(auth).ok();
     }
     /// A chainable version of [set_auth](Self::set_auth).
-    pub fn with_auth<S: AsRef<str>>(mut self, auth: S) -> Self {
-        self.auth = Some(auth.as_ref().to_string());
+    pub fn with_auth<S: AsRef<[u8]>>(mut self, auth: S) -> Self {
+        self.auth = hex::decode(auth).ok();
         self
     }
 

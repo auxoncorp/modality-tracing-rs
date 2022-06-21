@@ -16,7 +16,7 @@ use tracing_subscriber::{
     registry::Registry,
 };
 
-use tracing_serde_modality_ingest::{options::GLOBAL_OPTIONS, TracingModalityLense};
+use tracing_serde_modality_ingest::{options::GLOBAL_OPTIONS, TracingModality};
 use tracing_serde_structured::{AsSerde, CowString, RecordMap, SerializeValue};
 use tracing_serde_wire::TracingWire;
 
@@ -31,14 +31,14 @@ thread_local! {
         let opts = opts.with_name(name);
 
         let rt = Runtime::new().expect("create tokio runtime");
-        let lense = {
+        let tracer = {
             let handle = rt.handle();
-            handle.block_on(async { TracingModalityLense::connect_with_options(opts).await.expect("connect") })
+            handle.block_on(async { TracingModality::connect_with_options(opts).await.expect("connect") })
         };
 
         RwLock::new(TSHandler {
             rt,
-            lense,
+            tracer,
         })
     });
 }

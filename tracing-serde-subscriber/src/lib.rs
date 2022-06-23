@@ -1,9 +1,10 @@
 pub use tracing_serde_modality_ingest::TimelineId;
 pub use tracing_serde_wire::Packet;
 
-use std::{fmt::Debug, sync::RwLock, thread, thread_local, time::Instant};
+use std::{fmt::Debug, thread, thread_local, time::Instant};
 
 use once_cell::sync::Lazy;
+use parking_lot::RwLock;
 use tokio::runtime::Runtime;
 use tracing_core::{
     field::Visit,
@@ -15,36 +16,77 @@ use tracing_subscriber::{
     prelude::*,
     registry::Registry,
 };
+use anyhow::{Context as _};
 
-use tracing_serde_modality_ingest::{options::GLOBAL_OPTIONS, TracingModality};
+use tracing_serde_modality_ingest::{options::Options, ConnectError, TracingModality};
 use tracing_serde_structured::{AsSerde, CowString, RecordMap, SerializeValue};
 use tracing_serde_wire::TracingWire;
 
 static START: Lazy<Instant> = Lazy::new(Instant::now);
+static GLOBAL_OPTIONS: RwLock<Option<Options>> = RwLock::new(None);
 
 thread_local! {
-    static HANDLER: Lazy<RwLock<TSHandler>> = Lazy::new(|| {
-        let opts = GLOBAL_OPTIONS.read().unwrap().clone();
+    static HANDLER: LocalHandler = LocalHandler::new();
+}
 
-        let cur = thread::current();
-        let name = cur.name().map(str::to_string).unwrap_or_else(|| format!("Thread#{:?}", cur.id()));
-        let opts = opts.with_name(name);
+struct LocalHandler(RwLock<Option<Result<TSHandler, ConnectError>>>);
 
-        let rt = Runtime::new().expect("create tokio runtime");
-        let tracer = {
-            let handle = rt.handle();
-            handle.block_on(async { TracingModality::connect_with_options(opts).await.expect("connect") })
-        };
+impl LocalHandler {
+    const fn new() -> Self {
+        LocalHandler(RwLock::new(None))
+    }
 
-        RwLock::new(TSHandler {
-            rt,
-            tracer,
-        })
-    });
+    fn manual_init(&self, new_handler: TSHandler) {
+        let mut handler = self.0.write();
+        *handler = Some(Ok(new_handler));
+    }
+
+    // ensures handler has been initialized, then runs the provided function on it if it has been
+    // successfully initialized, otherwise does nothing
+    fn with_read<R, F: FnOnce(&TSHandler) -> R>(&self, f: F) -> Option<R> {
+        let mut handler = self.0.write();
+
+        if handler.is_none() {
+            *handler = Some(TSHandler::new());
+        }
+
+        if let Some(Ok(ref handler)) = *handler {
+            Some(f(handler))
+        } else {
+            None
+        }
+    }
+
+    // ensures handler has been initialized, then runs the provided function on it if it has been
+    // successfully initialized, otherwise does nothing
+    fn with_write<R, F: FnOnce(&mut TSHandler) -> R>(&self, f: F) -> Option<R> {
+        let mut handler = self.0.write();
+
+        if handler.is_none() {
+            *handler = Some(TSHandler::new());
+        }
+
+        if let Some(Ok(ref mut handler)) = *handler {
+            Some(f(handler))
+        } else {
+            None
+        }
+    }
+}
+
+impl LocalHandler {
+    fn handle_message(&self, msg: TracingWire<'_>) {
+        self.with_write(|h| h.handle_message(msg));
+    }
+
+    fn timeline_id(&self) -> TimelineId {
+        self.with_read(|t| t.tracer.timeline_id())
+            .unwrap_or_else(TimelineId::zero)
+    }
 }
 
 pub fn timeline_id() -> TimelineId {
-    HANDLER.with(|c| c.read().unwrap().tracer.timeline_id())
+    HANDLER.with(|h| h.timeline_id())
 }
 
 pub struct TSHandler {
@@ -53,6 +95,32 @@ pub struct TSHandler {
 }
 
 impl TSHandler {
+    fn new() -> Result<Self, ConnectError> {
+        let mut local_opts = GLOBAL_OPTIONS
+            .read()
+            .as_ref()
+            .context("global options not initialized, but global logger was set to us somehow")?
+            .clone();
+
+        let cur = thread::current();
+        let name = cur
+            .name()
+            .map(str::to_string)
+            .unwrap_or_else(|| format!("Thread#{:?}", cur.id()));
+        local_opts.set_name(name);
+
+        let rt = Runtime::new().context("create local tokio runtime for sdk")?;
+        let tracing_result = {
+            let handle = rt.handle();
+            handle.block_on(async { TracingModality::connect_with_options(local_opts).await })
+        };
+
+        match tracing_result {
+            Ok(tracer) => Ok(TSHandler { rt, tracer }),
+            Err(e) => Err(e),
+        }
+    }
+
     fn handle_message(&mut self, message: TracingWire<'_>) {
         let packet = Packet {
             message,
@@ -66,13 +134,23 @@ impl TSHandler {
     }
 }
 
-#[non_exhaustive] // prevents raw construction
-pub struct TSSubscriber;
+pub struct TSSubscriber {
+    _no_external_construct: (),
+}
 
 impl TSSubscriber {
     #[allow(clippy::new_ret_no_self)]
     // this doesn't technically build a `Self`, but that's the way people should think of it
     pub fn new() -> impl Subscriber {
+        Self::new_with_options(Default::default())
+    }
+
+    pub fn new_with_options(opts: Options) -> impl Subscriber {
+        {
+            let mut global_opts = GLOBAL_OPTIONS.write();
+            *global_opts = Some(opts);
+        }
+
         Registry::default().with(TSLayer)
     }
 }
@@ -96,7 +174,7 @@ impl<S: Subscriber> Layer<S> for TSLayer {
             values: visitor.values().into(),
         };
 
-        HANDLER.with(move |c| c.write().unwrap().handle_message(msg))
+        HANDLER.with(move |h| h.handle_message(msg));
     }
 
     fn on_record(&self, span: &Id, values: &Record<'_>, _ctx: Context<'_, S>) {
@@ -105,7 +183,7 @@ impl<S: Subscriber> Layer<S> for TSLayer {
             values: values.as_serde().to_owned(),
         };
 
-        HANDLER.with(move |c| c.write().unwrap().handle_message(msg))
+        HANDLER.with(move |h| h.handle_message(msg));
     }
 
     fn on_follows_from(&self, span: &Id, follows: &Id, _ctx: Context<'_, S>) {
@@ -114,25 +192,25 @@ impl<S: Subscriber> Layer<S> for TSLayer {
             follows: follows.as_serde().to_owned(),
         };
 
-        HANDLER.with(move |c| c.write().unwrap().handle_message(msg))
+        HANDLER.with(move |h| h.handle_message(msg));
     }
 
     fn on_event(&self, event: &tracing_core::Event<'_>, _ctx: Context<'_, S>) {
         let msg = TracingWire::Event(event.as_serde().to_owned());
 
-        HANDLER.with(move |c| c.write().unwrap().handle_message(msg))
+        HANDLER.with(move |h| h.handle_message(msg));
     }
 
     fn on_enter(&self, span: &Id, _ctx: Context<'_, S>) {
         let msg = TracingWire::Enter(span.as_serde());
 
-        HANDLER.with(move |c| c.write().unwrap().handle_message(msg))
+        HANDLER.with(move |h| h.handle_message(msg));
     }
 
     fn on_exit(&self, span: &Id, _ctx: Context<'_, S>) {
         let msg = TracingWire::Exit(span.as_serde());
 
-        HANDLER.with(move |c| c.write().unwrap().handle_message(msg))
+        HANDLER.with(move |h| h.handle_message(msg));
     }
 
     fn on_id_change(&self, old: &Id, new: &Id, _ctx: Context<'_, S>) {
@@ -141,13 +219,13 @@ impl<S: Subscriber> Layer<S> for TSLayer {
             new: new.as_serde(),
         };
 
-        HANDLER.with(move |c| c.write().unwrap().handle_message(msg))
+        HANDLER.with(move |h| h.handle_message(msg));
     }
 
     fn on_close(&self, span: Id, _ctx: Context<'_, S>) {
         let msg = TracingWire::Close(span.as_serde());
 
-        HANDLER.with(move |c| c.write().unwrap().handle_message(msg))
+        HANDLER.with(move |h| h.handle_message(msg));
     }
 }
 

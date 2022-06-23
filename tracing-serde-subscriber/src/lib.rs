@@ -153,6 +153,13 @@ impl TSSubscriber {
 
         Registry::default().with(TSLayer)
     }
+
+    // another bit of type-based lies, this doesn't take an &self because we never build a Self
+    pub fn connect() -> Result<(), ConnectError> {
+        let first_local_handler = TSHandler::new()?;
+        HANDLER.with(|h| h.manual_init(first_local_handler));
+        Ok(())
+    }
 }
 
 pub struct TSLayer;

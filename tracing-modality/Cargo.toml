@@ -23,3 +23,4 @@ path = "../tracing-serde-subscriber"
 [dev-dependencies]
 # used for "collatz" example
 rand = { version = "0.8.5" }
+ctrlc = "3.2.2"

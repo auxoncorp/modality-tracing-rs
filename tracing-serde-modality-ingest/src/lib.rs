@@ -1,6 +1,7 @@
 pub mod options;
 
 use anyhow::Context;
+use modality_ingest_protocol::types::Nanoseconds;
 use modality_ingest_protocol::{
     client::{BoundTimelineState, IngestClient},
     types::{AttrVal, BigInt, EventAttrKey, LogicalTime, TimelineAttrKey, Uuid},
@@ -213,6 +214,65 @@ impl TracingModality {
                         .await?,
                         remote_timeline_id,
                     ));
+                }
+                // Manually retype the remote_timestamp
+                let remote_timestamp = records
+                    .remove(&"modality.interaction.remote_timestamp".into())
+                    .and_then(tracing_value_to_attr_val);
+                if let Some(attrval) = remote_timestamp {
+                    let remote_timestamp = match attrval {
+                        AttrVal::Integer(i) if i >= 0 => {
+                            AttrVal::Timestamp(Nanoseconds::from(i as u64))
+                        }
+                        AttrVal::BigInt(i) if *i >= 0 && *i <= u64::MAX as i128 => {
+                            AttrVal::Timestamp(Nanoseconds::from(*i as u64))
+                        }
+                        AttrVal::Timestamp(t) => AttrVal::Timestamp(t),
+                        x => x,
+                    };
+
+                    packed_attrs.push((
+                        self.get_or_create_event_attr_key(
+                            "event.interaction.remote_timestamp".into(),
+                        )
+                        .await?,
+                        remote_timestamp,
+                    ));
+                }
+
+                // Manually retype the local timestamp
+                let local_timestamp = records
+                    .remove(&"modality.timestamp".into())
+                    .and_then(tracing_value_to_attr_val);
+                if let Some(attrval) = local_timestamp {
+                    let remote_timestamp = match attrval {
+                        AttrVal::Integer(i) if i >= 0 => {
+                            AttrVal::Timestamp(Nanoseconds::from(i as u64))
+                        }
+                        AttrVal::BigInt(i) if *i >= 0 && *i <= u64::MAX as i128 => {
+                            AttrVal::Timestamp(Nanoseconds::from(*i as u64))
+                        }
+                        AttrVal::Timestamp(t) => AttrVal::Timestamp(t),
+                        x => x,
+                    };
+
+                    packed_attrs.push((
+                        self.get_or_create_event_attr_key("event.timestamp".into())
+                            .await?,
+                        remote_timestamp,
+                    ));
+                } else if let Ok(duration_since_epoch) =
+                    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
+                {
+                    let duration_since_epoch_in_nanos_res: Result<u64, _> =
+                        duration_since_epoch.as_nanos().try_into();
+                    if let Ok(duration_since_epoch_in_nanos) = duration_since_epoch_in_nanos_res {
+                        packed_attrs.push((
+                            self.get_or_create_event_attr_key("event.timestamp".into())
+                                .await?,
+                            AttrVal::Timestamp(Nanoseconds::from(duration_since_epoch_in_nanos)),
+                        ));
+                    }
                 }
 
                 self.pack_common_attrs(&mut packed_attrs, ev.metadata, records, pkt.tick)

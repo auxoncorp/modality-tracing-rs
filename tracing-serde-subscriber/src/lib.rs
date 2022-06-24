@@ -148,7 +148,7 @@ impl TSSubscriber {
 
     pub fn new_with_options(mut opts: Options) -> impl Subscriber {
         let run_id = Uuid::new_v4();
-        opts.add_metadata("run_id", run_id.to_string().into());
+        opts.add_metadata("run_id", run_id.to_string());
 
         {
             let mut global_opts = GLOBAL_OPTIONS.write();

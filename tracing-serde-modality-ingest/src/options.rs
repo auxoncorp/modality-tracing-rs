@@ -52,14 +52,14 @@ impl Options {
     /// Add arbitrary metadata to the root timeline.
     ///
     /// This can be called multiple times.
-    pub fn add_metadata<K: AsRef<str>>(&mut self, key: K, value: AttrVal) {
+    pub fn add_metadata<K: AsRef<str>, V: Into<AttrVal>>(&mut self, key: K, value: V) {
         self.metadata
-            .push((format!("timeline.{}", key.as_ref()), value));
+            .push((format!("timeline.{}", key.as_ref()), value.into()));
     }
     /// A chainable version of [add_metadata](Self::add_metadata).
-    pub fn with_metadata<K: AsRef<str>>(mut self, key: K, value: AttrVal) -> Self {
+    pub fn with_metadata<K: AsRef<str>, V: Into<AttrVal>>(mut self, key: K, value: V) -> Self {
         self.metadata
-            .push((format!("timeline.{}", key.as_ref()), value));
+            .push((format!("timeline.{}", key.as_ref()), value.into()));
         self
     }
 

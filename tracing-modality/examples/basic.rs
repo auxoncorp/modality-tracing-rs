@@ -5,7 +5,7 @@ fn main() {
     TracingModality::init_with_options(
         Options::new()
             .with_name("basic example")
-            .with_metadata("build-id", 0i64.into()),
+            .with_metadata("build_id", 0i64),
     )
     .expect("init tracing");
 

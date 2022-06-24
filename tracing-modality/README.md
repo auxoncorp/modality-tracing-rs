@@ -54,19 +54,19 @@ Modality trace data as follows:
 
 * `message` or `name` -> `event.name`
 * `level` -> `event.severity`
-* `module_path` -> `event.module_path`\*
-* `file` -> `event.source_file`
-* `line` -> `event.source_line`
-* the kind of event -> `event.kind`\* ["span:defined", "span:enter",
+* `module_path` -> `event.source.module`
+* `file` -> `event.source.file`
+* `line` -> `event.source.line`
+* the kind of event -> `event.internal.rs.kind` ["span:defined", "span:enter",
   "span:exit" ]
-* `id` -> `event.span_id` \*
-
-\* Denotes that this field is a non-standard attribute in modality.
+* `id` -> `event.internal.rs.span_id`
 
 ### Fields
 
-All fields are mapped directly as is to `event.*`, fields manually set will
-overwrite any any default values set by metadata, if present.
+All fields are mapped directly as is to `event.*`, excect fields prefixed with
+`modality.` which are mapped to the datasource specific namespace
+`event.internal.rs.*`. Fields manually set will overwrite any any default
+values set by metadata, if present.
 
 # License
 

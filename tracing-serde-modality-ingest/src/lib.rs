@@ -136,21 +136,21 @@ impl TracingModality {
                 let mut packed_attrs = Vec::new();
 
                 let kind = records
-                    .remove(&"kind".into())
+                    .remove(&"modality.kind".into())
                     .and_then(tracing_value_to_attr_val)
                     .unwrap_or_else(|| "span:defined".into());
                 packed_attrs.push((
-                    self.get_or_create_event_attr_key("event.kind".to_string())
+                    self.get_or_create_event_attr_key("event.internal.rs.kind".to_string())
                         .await?,
                     kind,
                 ));
 
                 let span_id = records
-                    .remove(&"span_id".into())
+                    .remove(&"modality.span_id".into())
                     .and_then(tracing_value_to_attr_val)
                     .unwrap_or_else(|| BigInt::new_attr_val(id.id.get() as i128));
                 packed_attrs.push((
-                    self.get_or_create_event_attr_key("event.span_id".to_string())
+                    self.get_or_create_event_attr_key("event.internal.rs.span_id".to_string())
                         .await?,
                     span_id,
                 ));
@@ -182,11 +182,11 @@ impl TracingModality {
                 };
 
                 let kind = records
-                    .remove(&"kind".into())
+                    .remove(&"modality.kind".into())
                     .and_then(tracing_value_to_attr_val)
                     .unwrap_or_else(|| "event".into());
                 packed_attrs.push((
-                    self.get_or_create_event_attr_key("event.kind".to_string())
+                    self.get_or_create_event_attr_key("event.internal.rs.kind".to_string())
                         .await?,
                     kind,
                 ));
@@ -305,19 +305,19 @@ impl TracingModality {
                 };
 
                 packed_attrs.push((
-                    self.get_or_create_event_attr_key("event.kind".to_string())
+                    self.get_or_create_event_attr_key("event.internal.rs.kind".to_string())
                         .await?,
                     AttrVal::String("span:enter".to_string()),
                 ));
 
                 packed_attrs.push((
-                    self.get_or_create_event_attr_key("event.span_id".to_string())
+                    self.get_or_create_event_attr_key("event.internal.rs.span_id".to_string())
                         .await?,
                     BigInt::new_attr_val(u64::from(id).into()),
                 ));
 
                 packed_attrs.push((
-                    self.get_or_create_event_attr_key("event.logical_time".to_string())
+                    self.get_or_create_event_attr_key("event.internal.rs.tick".to_string())
                         .await?,
                     AttrVal::LogicalTime(LogicalTime::unary(pkt.tick)),
                 ));
@@ -349,19 +349,19 @@ impl TracingModality {
                 };
 
                 packed_attrs.push((
-                    self.get_or_create_event_attr_key("event.kind".to_string())
+                    self.get_or_create_event_attr_key("event.internal.rs.kind".to_string())
                         .await?,
                     AttrVal::String("span:exit".to_string()),
                 ));
 
                 packed_attrs.push((
-                    self.get_or_create_event_attr_key("event.span_id".to_string())
+                    self.get_or_create_event_attr_key("event.internal.rs.span_id".to_string())
                         .await?,
                     BigInt::new_attr_val(u64::from(id).into()),
                 ));
 
                 packed_attrs.push((
-                    self.get_or_create_event_attr_key("event.logical_time".to_string())
+                    self.get_or_create_event_attr_key("event.internal.rs.tick".to_string())
                         .await?,
                     AttrVal::LogicalTime(LogicalTime::unary(pkt.tick)),
                 ));
@@ -394,7 +394,7 @@ impl TracingModality {
                         let mut packed_attrs = Vec::new();
 
                         packed_attrs.push((
-                            self.get_or_create_event_attr_key("event.kind".to_string())
+                            self.get_or_create_event_attr_key("event.internal.rs.kind".to_string())
                                 .await?,
                             AttrVal::String("message_discarded".to_string()),
                         ));
@@ -410,8 +410,10 @@ impl TracingModality {
                     } => {
                         let mut packed_attrs = Vec::new();
                         packed_attrs.push((
-                            self.get_or_create_timeline_attr_key("timeline.clock_id".to_string())
-                                .await?,
+                            self.get_or_create_timeline_attr_key(
+                                "timeline.internal.rs.clock_id".to_string(),
+                            )
+                            .await?,
                             AttrVal::Integer(clock_id.into()),
                         ));
                         packed_attrs.push((
@@ -422,8 +424,10 @@ impl TracingModality {
                             AttrVal::Integer(ticks_per_sec.into()),
                         ));
                         packed_attrs.push((
-                            self.get_or_create_timeline_attr_key("timeline.device_id".to_string())
-                                .await?,
+                            self.get_or_create_timeline_attr_key(
+                                "timeline.internal.rs.device_id".to_string(),
+                            )
+                            .await?,
                             // TODO: this includes array syntax in the ID
                             AttrVal::String(format!("{:x?}", device_id)),
                         ));
@@ -506,7 +510,7 @@ impl TracingModality {
         let severity = records
             .remove(&"severity".into())
             .and_then(tracing_value_to_attr_val)
-            .unwrap_or_else(|| format!("{:?}", metadata.level).into());
+            .unwrap_or_else(|| format!("{:?}", metadata.level).to_lowercase().into());
         packed_attrs.push((
             self.get_or_create_event_attr_key("event.severity".to_string())
                 .await?,
@@ -514,43 +518,43 @@ impl TracingModality {
         ));
 
         let module_path = records
-            .remove(&"module_path".into())
+            .remove(&"source.module".into())
             .and_then(tracing_value_to_attr_val)
             .or_else(|| metadata.module_path.map(|mp| mp.as_str().into()));
         if let Some(module_path) = module_path {
             packed_attrs.push((
-                self.get_or_create_event_attr_key("event.module_path".to_string())
+                self.get_or_create_event_attr_key("event.source.module".to_string())
                     .await?,
                 module_path,
             ));
         }
 
         let source_file = records
-            .remove(&"source_file".into())
+            .remove(&"source.file".into())
             .and_then(tracing_value_to_attr_val)
             .or_else(|| metadata.file.map(|mp| mp.as_str().into()));
         if let Some(source_file) = source_file {
             packed_attrs.push((
-                self.get_or_create_event_attr_key("event.source_file".to_string())
+                self.get_or_create_event_attr_key("event.source.file".to_string())
                     .await?,
                 source_file,
             ));
         }
 
         let source_line = records
-            .remove(&"source_line".into())
+            .remove(&"source.line".into())
             .and_then(tracing_value_to_attr_val)
             .or_else(|| metadata.line.map(|mp| (mp as i64).into()));
         if let Some(source_line) = source_line {
             packed_attrs.push((
-                self.get_or_create_event_attr_key("event.source_line".to_string())
+                self.get_or_create_event_attr_key("event.source.line".to_string())
                     .await?,
                 source_line,
             ));
         }
 
         packed_attrs.push((
-            self.get_or_create_event_attr_key("event.logical_time".to_string())
+            self.get_or_create_event_attr_key("event.internal.rs.tick".to_string())
                 .await?,
             AttrVal::LogicalTime(LogicalTime::unary(tick)),
         ));

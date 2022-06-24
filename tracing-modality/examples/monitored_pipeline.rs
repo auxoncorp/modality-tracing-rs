@@ -39,7 +39,15 @@ fn main() {
                 }
                 shutdown_requested_for_timed_run.store(true, Ordering::SeqCst);
             });
+            println!("Running a pipeline of collaborating processes for {} second{}. Sending traces to modality.", run_duration_in_seconds, if run_duration_in_seconds == 0 { "" } else {"s"})
+        } else {
+            println!("Running a pipeline of collaborating processes indefinitely. Sending traces to modality.")
         }
+    }
+    {
+        println!(
+            "Running pipeline of collaborating processes indefinitely. Sending traces to modality."
+        )
     }
     let is_shutdown_requested = move || shutdown_requested.load(Ordering::SeqCst);
 

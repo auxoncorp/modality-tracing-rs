@@ -69,7 +69,7 @@ impl TracingModality {
 
         let auth_key = options.auth.ok_or(ConnectError::AuthRequired)?;
         let client = unauth_client
-            .authenticate(auth_key.as_bytes().to_vec())
+            .authenticate(auth_key)
             .await
             .map_err(ConnectError::AuthFailed)?;
 

@@ -13,8 +13,9 @@ serde_json = "1"
 once_cell = "1.12.0"
 thiserror = "1"
 anyhow = "1"
+url = "2"
 
-[dependencies.modality-ingest-protocol]
+[dependencies.modality-ingest-client]
 # If you get errors with this, run the following commands
 #
 # ```
@@ -24,7 +25,7 @@ anyhow = "1"
 #
 # Then try again.
 git = "ssh://git@github.com/auxoncorp/modality-sdk.git"
-branch = "main"
+branch = "publish-updates"
 
 [dependencies.tracing-serde-structured]
 version = "0.1"

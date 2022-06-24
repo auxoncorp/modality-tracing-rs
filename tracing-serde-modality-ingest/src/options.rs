@@ -1,4 +1,4 @@
-use modality_ingest_protocol::types::AttrVal;
+use modality_ingest_client::types::AttrVal;
 use std::net::SocketAddr;
 
 /// Initialization options.

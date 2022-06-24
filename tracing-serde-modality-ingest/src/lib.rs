@@ -118,7 +118,7 @@ impl TracingModality {
                     SerializeRecord::De(record_map) => record_map,
                 };
 
-                {
+                let name = {
                     // store name for future use
                     let name = records
                         .get(&"name".into())
@@ -130,10 +130,18 @@ impl TracingModality {
                         .write()
                         .expect("span name lock poisoned, this is a bug")
                         .deref_mut()
-                        .insert(id.id.get(), name);
-                }
+                        .insert(id.id.get(), name.clone());
+
+                    name
+                };
 
                 let mut packed_attrs = Vec::new();
+
+                packed_attrs.push((
+                    self.get_or_create_event_attr_key("event.name".to_string())
+                        .await?,
+                    AttrVal::String(name),
+                ));
 
                 let kind = records
                     .remove(&"modality.kind".into())

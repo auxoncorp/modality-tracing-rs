@@ -17,6 +17,7 @@ use tracing_subscriber::{
     registry::Registry,
 };
 use anyhow::{Context as _};
+use uuid::Uuid;
 
 use tracing_serde_modality_ingest::{options::Options, ConnectError, TracingModality};
 use tracing_serde_structured::{AsSerde, CowString, RecordMap, SerializeValue};
@@ -145,7 +146,10 @@ impl TSSubscriber {
         Self::new_with_options(Default::default())
     }
 
-    pub fn new_with_options(opts: Options) -> impl Subscriber {
+    pub fn new_with_options(mut opts: Options) -> impl Subscriber {
+        let run_id = Uuid::new_v4();
+        opts.add_metadata("run_id", run_id.to_string().into());
+
         {
             let mut global_opts = GLOBAL_OPTIONS.write();
             *global_opts = Some(opts);

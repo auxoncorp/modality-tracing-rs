@@ -2,23 +2,19 @@
 name = "tracing-modality"
 version = "0.1.0"
 edition = "2021"
+description = "This crate provides a `tracing` `Layer` (and `Subscriber`) for emitting trace data to Auxon Modality"
+repository = "https://github.com/auxon/modality-tracing-rs"
 license = "Apache-2.0"
 
 [dependencies]
-serde_json = "1"
-tokio = "1"
-thiserror = "1"
 anyhow = "1"
+serde_json = "1"
+thiserror = "1"
+tokio = "1"
 tracing = "0.1"
 tracing-core = "0.1.27"
-
-[dependencies.tracing-serde-modality-ingest]
-# NOTE: Path dep is acceptable - inside this repo
-path = "../tracing-serde-modality-ingest"
-
-[dependencies.tracing-serde-subscriber]
-# NOTE: Path dep is acceptable - inside this repo
-path = "../tracing-serde-subscriber"
+tracing-serde-modality-ingest = { version = "0.1", path = "../tracing-serde-modality-ingest" }
+tracing-serde-subscriber = { version = "0.1", path = "../tracing-serde-subscriber" }
 
 [dev-dependencies]
 # used for "collatz" example

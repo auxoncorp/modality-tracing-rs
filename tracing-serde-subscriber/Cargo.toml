@@ -2,29 +2,18 @@
 name = "tracing-serde-subscriber"
 version = "0.1.0"
 edition = "2021"
+description = "This crate ss currently only meant for internal use within `tracing-modality`"
+repository = "https://github.com/auxon/modality-tracing-rs"
 license = "Apache-2.0"
 
 [dependencies]
+anyhow = "1"
 once_cell = "1.12.0"
 parking_lot = "0.12"
-uuid = { version = "1", features = ["v4"] }
 tokio = "1"
-anyhow = "1"
-
-[dependencies.tracing-serde-modality-ingest]
-# NOTE: Path dep is acceptable - inside this repo
-path = "../tracing-serde-modality-ingest"
-
-
-[dependencies.tracing-serde-wire]
-git = "https://github.com/jamesmunns/tracing-serde-wire"
-branch = "main"
-
-[dependencies.tracing-core]
-version = "0.1.27"
-
-[dependencies.tracing-serde-structured]
-version = "0.1.1"
-
-[dependencies.tracing-subscriber]
-version = "0.3"
+tracing-core = "0.1.27"
+tracing-serde-modality-ingest = { version = "0.1", path = "../tracing-serde-modality-ingest" }
+tracing-serde-structured = "0.1.1"
+tracing-serde-wire = "0.1"
+tracing-subscriber = "0.3"
+uuid = { version = "1", features = ["v4"] }

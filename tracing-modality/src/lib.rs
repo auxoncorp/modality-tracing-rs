@@ -3,9 +3,9 @@
 // (almost) always be called from
 #![allow(clippy::needless_doctest_main)]
 
+use anyhow::Context;
 use thiserror::Error;
 use tracing_core::Dispatch;
-use tracing_serde_modality_ingest::options::GLOBAL_OPTIONS;
 use tracing_serde_modality_ingest::ConnectError;
 use tracing_serde_subscriber::TSSubscriber;
 
@@ -39,19 +39,19 @@ impl TracingModality {
         let disp = Dispatch::new(TSSubscriber::new());
         tracing::dispatcher::set_global_default(disp).unwrap();
 
-        // Force a log to ensure a connection can be made, and to avoid further deferring the main thread.
-        tracing::event!(tracing::Level::TRACE, "Modality connected!");
+        TSSubscriber::connect().context("connect to modality")?;
 
         Ok(Self {})
     }
 
     /// Initialize with the provided options and set as the global default tracer.
     pub fn init_with_options(opt: Options) -> Result<Self, InitError> {
-        let mut opts = GLOBAL_OPTIONS.write().unwrap();
-        *opts = opt;
-        drop(opts);
+        let disp = Dispatch::new(TSSubscriber::new_with_options(opt));
+        tracing::dispatcher::set_global_default(disp).unwrap();
 
-        Self::init()
+        TSSubscriber::connect().context("connect to modality")?;
+
+        Ok(Self {})
     }
 }
 

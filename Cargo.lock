@@ -828,7 +828,9 @@ dependencies = [
 name = "tracing-serde-subscriber"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "once_cell",
+ "parking_lot",
  "tokio",
  "tracing-core",
  "tracing-serde-modality-ingest",

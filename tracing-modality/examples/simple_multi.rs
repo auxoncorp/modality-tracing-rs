@@ -113,7 +113,7 @@ fn main() {
 
     drop(tx_chans);
 
-    for t in threads.into_iter() {
+    for t in threads {
         t.join().unwrap();
     }
 }

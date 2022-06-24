@@ -80,7 +80,7 @@ fn main() {
         })
         .expect("Could not start producer");
 
-    let monitor_tx_for_consumer = monitor_tx.clone();
+    let monitor_tx_for_consumer = monitor_tx;
     let is_shutdown_requested_for_consumer = is_shutdown_requested.clone();
     let consumer_join_handle = thread::Builder::new()
         .name(Component::Consumer.name().into())
@@ -264,12 +264,10 @@ mod producer {
         // This is also the reason we're not using std::cmp::Ord::clamp.
         if x > high {
             x
+        } else if x < low {
+            low
         } else {
-            if x < low {
-                low
-            } else {
-                x
-            }
+            x
         }
     }
 }
@@ -336,10 +334,8 @@ mod consumer {
             // TODO - RESTORE
             //tracing::trace!("Expensive task loop iteration");
             thread::sleep(Duration::from_millis(5));
-            if i % 80 == 0 {
-                if is_shutdown_requested() {
-                    return;
-                }
+            if i % 80 == 0 && is_shutdown_requested() {
+                return;
             }
         }
     }

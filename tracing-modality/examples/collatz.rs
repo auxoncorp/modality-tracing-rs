@@ -130,7 +130,7 @@ fn main() {
         t.send(Message::AllDone).unwrap();
     }
 
-    for t in threads.into_iter() {
+    for t in threads {
         t.join().unwrap();
     }
 }

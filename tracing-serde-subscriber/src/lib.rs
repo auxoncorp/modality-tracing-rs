@@ -3,6 +3,7 @@ pub use tracing_serde_wire::Packet;
 
 use std::{fmt::Debug, thread, thread_local, time::Instant};
 
+use anyhow::Context as _;
 use once_cell::sync::Lazy;
 use parking_lot::RwLock;
 use tokio::runtime::Runtime;
@@ -16,7 +17,6 @@ use tracing_subscriber::{
     prelude::*,
     registry::{LookupSpan, Registry},
 };
-use anyhow::{Context as _};
 use uuid::Uuid;
 
 use tracing_serde_modality_ingest::{options::Options, ConnectError, TracingModality};

@@ -121,7 +121,7 @@ impl TracingModality {
                 {
                     // store name for future use
                     let name = records
-                        .get(&"modality.name".into())
+                        .get(&"name".into())
                         .or_else(|| records.get(&"message".into()))
                         .map(|n| format!("{:?}", n))
                         .unwrap_or_else(|| attrs.metadata.name.to_string());
@@ -136,7 +136,7 @@ impl TracingModality {
                 let mut packed_attrs = Vec::new();
 
                 let kind = records
-                    .remove(&"modality.kind".into())
+                    .remove(&"kind".into())
                     .and_then(tracing_value_to_attr_val)
                     .unwrap_or_else(|| "span:defined".into());
                 packed_attrs.push((
@@ -146,7 +146,7 @@ impl TracingModality {
                 ));
 
                 let span_id = records
-                    .remove(&"modality.span_id".into())
+                    .remove(&"span_id".into())
                     .and_then(tracing_value_to_attr_val)
                     .unwrap_or_else(|| BigInt::new_attr_val(id.id.get() as i128));
                 packed_attrs.push((
@@ -182,7 +182,7 @@ impl TracingModality {
                 };
 
                 let kind = records
-                    .remove(&"modality.kind".into())
+                    .remove(&"kind".into())
                     .and_then(tracing_value_to_attr_val)
                     .unwrap_or_else(|| "event".into());
                 packed_attrs.push((
@@ -193,7 +193,7 @@ impl TracingModality {
 
                 // handle manually to type the AttrVal correctly
                 let remote_timeline_id = records
-                    .remove(&"modality.interaction.remote_timeline_id".into())
+                    .remove(&"interaction.remote_timeline_id".into())
                     .and_then(tracing_value_to_attr_val);
                 if let Some(attrval) = remote_timeline_id {
                     let remote_timeline_id = if let AttrVal::String(string) = attrval {
@@ -217,7 +217,7 @@ impl TracingModality {
                 }
                 // Manually retype the remote_timestamp
                 let remote_timestamp = records
-                    .remove(&"modality.interaction.remote_timestamp".into())
+                    .remove(&"interaction.remote_timestamp".into())
                     .and_then(tracing_value_to_attr_val);
                 if let Some(attrval) = remote_timestamp {
                     let remote_timestamp = match attrval {
@@ -242,7 +242,7 @@ impl TracingModality {
 
                 // Manually retype the local timestamp
                 let local_timestamp = records
-                    .remove(&"modality.timestamp".into())
+                    .remove(&"timestamp".into())
                     .and_then(tracing_value_to_attr_val);
                 if let Some(attrval) = local_timestamp {
                     let remote_timestamp = match attrval {
@@ -486,7 +486,7 @@ impl TracingModality {
         tick: u64,
     ) -> Result<(), IngestError> {
         let name = records
-            .remove(&"modality.name".into())
+            .remove(&"name".into())
             .or_else(|| records.remove(&"message".into()))
             .and_then(tracing_value_to_attr_val)
             .unwrap_or_else(|| metadata.name.as_str().into());
@@ -504,7 +504,7 @@ impl TracingModality {
         //));
 
         let severity = records
-            .remove(&"modality.severity".into())
+            .remove(&"severity".into())
             .and_then(tracing_value_to_attr_val)
             .unwrap_or_else(|| format!("{:?}", metadata.level).into());
         packed_attrs.push((
@@ -514,7 +514,7 @@ impl TracingModality {
         ));
 
         let module_path = records
-            .remove(&"modality.module_path".into())
+            .remove(&"module_path".into())
             .and_then(tracing_value_to_attr_val)
             .or_else(|| metadata.module_path.map(|mp| mp.as_str().into()));
         if let Some(module_path) = module_path {
@@ -526,7 +526,7 @@ impl TracingModality {
         }
 
         let source_file = records
-            .remove(&"modality.source_file".into())
+            .remove(&"source_file".into())
             .and_then(tracing_value_to_attr_val)
             .or_else(|| metadata.file.map(|mp| mp.as_str().into()));
         if let Some(source_file) = source_file {
@@ -538,7 +538,7 @@ impl TracingModality {
         }
 
         let source_line = records
-            .remove(&"modality.source_line".into())
+            .remove(&"source_line".into())
             .and_then(tracing_value_to_attr_val)
             .or_else(|| metadata.line.map(|mp| (mp as i64).into()));
         if let Some(source_line) = source_line {
@@ -576,13 +576,12 @@ impl TracingModality {
                 continue;
             };
 
-            let key = if let Some(("modality", key)) = name.as_str().split_once('.') {
-                format!("event.{}", key)
-            } else {
-                format!("event.payload.{}", name.as_str())
-            };
+            let key = format!("event.{}", name.as_str());
 
-            packed_attrs.push((self.get_or_create_event_attr_key(key).await?, attrval));
+            packed_attrs.push((
+                self.get_or_create_event_attr_key(key.to_string()).await?,
+                attrval,
+            ));
         }
 
         Ok(())

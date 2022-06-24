@@ -285,8 +285,8 @@ mod consumer {
                 Ok(msg) => {
                     tracing::info!(
                         sample = msg.sample,
-                        modality.interaction.remote_timeline_id = %msg.meta.timeline_id.get_raw(),
-                        modality.interaction.remote_timestamp = msg.meta.timestamp.0,
+                        interaction.remote_timeline_id = %msg.meta.timeline_id.get_raw(),
+                        interaction.remote_timestamp = msg.meta.timestamp.0,
                         "Received measurement message");
 
                     expensive_task(msg.sample, &is_shutdown_requested);
@@ -351,8 +351,8 @@ mod monitor {
                 Ok(msg) => {
                     tracing::info!(
                         source = msg.source.name(),
-                        modality.interaction.remote_timeline_id = %msg.meta.timeline_id.get_raw(),
-                        modality.interaction.remote_timestamp = msg.meta.timestamp.0,
+                        interaction.remote_timeline_id = %msg.meta.timeline_id.get_raw(),
+                        interaction.remote_timestamp = msg.meta.timestamp.0,
                         "Received heartbeat message");
                     let prev = component_to_last_rx.insert(msg.source, Instant::now());
                     if prev.is_none() {

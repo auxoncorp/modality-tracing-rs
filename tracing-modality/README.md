@@ -65,9 +65,8 @@ Modality trace data as follows:
 
 ### Fields
 
-All fields are mapped as is to `event.payload.*`, except fields prefixed with
-`modality.` which are mapped to `event.*` and will overwrite any any default
-values set by metadata, if present.
+All fields are mapped directly as is to `event.*`, fields manually set will
+overwrite any any default values set by metadata, if present.
 
 # License
 

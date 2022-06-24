@@ -6,10 +6,23 @@ use std::sync::{
 };
 use std::time::{Duration, Instant};
 use std::{fmt, thread};
-use tracing_modality::{timeline_id, TimelineId, TracingModality};
+use tracing_core::Dispatch;
+use tracing_modality::{timeline_id, ModalityLayer, TimelineId};
+use tracing_subscriber::{fmt::Layer, layer::SubscriberExt, Registry};
 
 fn main() {
-    TracingModality::init().expect("Could not initialize tracing");
+    // setup custom tracer including ModalityLayer
+    {
+        let modality_layer = ModalityLayer::new();
+        modality_layer.connect().expect("connect to modality");
+
+        let subscriber = Registry::default()
+            .with(ModalityLayer::new())
+            .with(Layer::default());
+
+        let disp = Dispatch::new(subscriber);
+        tracing::dispatcher::set_global_default(disp).expect("set global tracer");
+    }
 
     // Enable signal handling for convenient process termination.
     let shutdown_requested = Arc::new(AtomicBool::new(false));
@@ -285,8 +298,8 @@ mod consumer {
                 Ok(msg) => {
                     tracing::info!(
                         sample = msg.sample,
-                        modality.interaction.remote_timeline_id = %msg.meta.timeline_id.get_raw(),
-                        modality.interaction.remote_timestamp = msg.meta.timestamp.0,
+                        interaction.remote_timeline_id = %msg.meta.timeline_id.get_raw(),
+                        interaction.remote_timestamp = msg.meta.timestamp.0,
                         "Received measurement message");
 
                     expensive_task(msg.sample, &is_shutdown_requested);
@@ -351,8 +364,8 @@ mod monitor {
                 Ok(msg) => {
                     tracing::info!(
                         source = msg.source.name(),
-                        modality.interaction.remote_timeline_id = %msg.meta.timeline_id.get_raw(),
-                        modality.interaction.remote_timestamp = msg.meta.timestamp.0,
+                        interaction.remote_timeline_id = %msg.meta.timeline_id.get_raw(),
+                        interaction.remote_timestamp = msg.meta.timestamp.0,
                         "Received heartbeat message");
                     let prev = component_to_last_rx.insert(msg.source, Instant::now());
                     if prev.is_none() {

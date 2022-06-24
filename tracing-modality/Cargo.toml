@@ -24,3 +24,5 @@ path = "../tracing-serde-subscriber"
 # used for "collatz" example
 rand = { version = "0.8.5" }
 ctrlc = "3.2.2"
+# used for pipeline example
+tracing-subscriber = "0.3"

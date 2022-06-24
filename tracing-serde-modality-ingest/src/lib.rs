@@ -118,10 +118,10 @@ impl TracingModality {
                     SerializeRecord::De(record_map) => record_map,
                 };
 
-                {
+                let name = {
                     // store name for future use
                     let name = records
-                        .get(&"modality.name".into())
+                        .get(&"name".into())
                         .or_else(|| records.get(&"message".into()))
                         .map(|n| format!("{:?}", n))
                         .unwrap_or_else(|| attrs.metadata.name.to_string());
@@ -130,17 +130,25 @@ impl TracingModality {
                         .write()
                         .expect("span name lock poisoned, this is a bug")
                         .deref_mut()
-                        .insert(id.id.get(), name);
-                }
+                        .insert(id.id.get(), name.clone());
+
+                    name
+                };
 
                 let mut packed_attrs = Vec::new();
+
+                packed_attrs.push((
+                    self.get_or_create_event_attr_key("event.name".to_string())
+                        .await?,
+                    AttrVal::String(name),
+                ));
 
                 let kind = records
                     .remove(&"modality.kind".into())
                     .and_then(tracing_value_to_attr_val)
                     .unwrap_or_else(|| "span:defined".into());
                 packed_attrs.push((
-                    self.get_or_create_event_attr_key("event.kind".to_string())
+                    self.get_or_create_event_attr_key("event.internal.rs.kind".to_string())
                         .await?,
                     kind,
                 ));
@@ -150,7 +158,7 @@ impl TracingModality {
                     .and_then(tracing_value_to_attr_val)
                     .unwrap_or_else(|| BigInt::new_attr_val(id.id.get() as i128));
                 packed_attrs.push((
-                    self.get_or_create_event_attr_key("event.span_id".to_string())
+                    self.get_or_create_event_attr_key("event.internal.rs.span_id".to_string())
                         .await?,
                     span_id,
                 ));
@@ -186,14 +194,14 @@ impl TracingModality {
                     .and_then(tracing_value_to_attr_val)
                     .unwrap_or_else(|| "event".into());
                 packed_attrs.push((
-                    self.get_or_create_event_attr_key("event.kind".to_string())
+                    self.get_or_create_event_attr_key("event.internal.rs.kind".to_string())
                         .await?,
                     kind,
                 ));
 
                 // handle manually to type the AttrVal correctly
                 let remote_timeline_id = records
-                    .remove(&"modality.interaction.remote_timeline_id".into())
+                    .remove(&"interaction.remote_timeline_id".into())
                     .and_then(tracing_value_to_attr_val);
                 if let Some(attrval) = remote_timeline_id {
                     let remote_timeline_id = if let AttrVal::String(string) = attrval {
@@ -217,7 +225,7 @@ impl TracingModality {
                 }
                 // Manually retype the remote_timestamp
                 let remote_timestamp = records
-                    .remove(&"modality.interaction.remote_timestamp".into())
+                    .remove(&"interaction.remote_timestamp".into())
                     .and_then(tracing_value_to_attr_val);
                 if let Some(attrval) = remote_timestamp {
                     let remote_timestamp = match attrval {
@@ -242,7 +250,7 @@ impl TracingModality {
 
                 // Manually retype the local timestamp
                 let local_timestamp = records
-                    .remove(&"modality.timestamp".into())
+                    .remove(&"timestamp".into())
                     .and_then(tracing_value_to_attr_val);
                 if let Some(attrval) = local_timestamp {
                     let remote_timestamp = match attrval {
@@ -305,19 +313,19 @@ impl TracingModality {
                 };
 
                 packed_attrs.push((
-                    self.get_or_create_event_attr_key("event.kind".to_string())
+                    self.get_or_create_event_attr_key("event.internal.rs.kind".to_string())
                         .await?,
                     AttrVal::String("span:enter".to_string()),
                 ));
 
                 packed_attrs.push((
-                    self.get_or_create_event_attr_key("event.span_id".to_string())
+                    self.get_or_create_event_attr_key("event.internal.rs.span_id".to_string())
                         .await?,
                     BigInt::new_attr_val(u64::from(id).into()),
                 ));
 
                 packed_attrs.push((
-                    self.get_or_create_event_attr_key("event.logical_time".to_string())
+                    self.get_or_create_event_attr_key("event.internal.rs.tick".to_string())
                         .await?,
                     AttrVal::LogicalTime(LogicalTime::unary(pkt.tick)),
                 ));
@@ -349,19 +357,19 @@ impl TracingModality {
                 };
 
                 packed_attrs.push((
-                    self.get_or_create_event_attr_key("event.kind".to_string())
+                    self.get_or_create_event_attr_key("event.internal.rs.kind".to_string())
                         .await?,
                     AttrVal::String("span:exit".to_string()),
                 ));
 
                 packed_attrs.push((
-                    self.get_or_create_event_attr_key("event.span_id".to_string())
+                    self.get_or_create_event_attr_key("event.internal.rs.span_id".to_string())
                         .await?,
                     BigInt::new_attr_val(u64::from(id).into()),
                 ));
 
                 packed_attrs.push((
-                    self.get_or_create_event_attr_key("event.logical_time".to_string())
+                    self.get_or_create_event_attr_key("event.internal.rs.tick".to_string())
                         .await?,
                     AttrVal::LogicalTime(LogicalTime::unary(pkt.tick)),
                 ));
@@ -394,7 +402,7 @@ impl TracingModality {
                         let mut packed_attrs = Vec::new();
 
                         packed_attrs.push((
-                            self.get_or_create_event_attr_key("event.kind".to_string())
+                            self.get_or_create_event_attr_key("event.internal.rs.kind".to_string())
                                 .await?,
                             AttrVal::String("message_discarded".to_string()),
                         ));
@@ -410,8 +418,10 @@ impl TracingModality {
                     } => {
                         let mut packed_attrs = Vec::new();
                         packed_attrs.push((
-                            self.get_or_create_timeline_attr_key("timeline.clock_id".to_string())
-                                .await?,
+                            self.get_or_create_timeline_attr_key(
+                                "timeline.internal.rs.clock_id".to_string(),
+                            )
+                            .await?,
                             AttrVal::Integer(clock_id.into()),
                         ));
                         packed_attrs.push((
@@ -422,8 +432,10 @@ impl TracingModality {
                             AttrVal::Integer(ticks_per_sec.into()),
                         ));
                         packed_attrs.push((
-                            self.get_or_create_timeline_attr_key("timeline.device_id".to_string())
-                                .await?,
+                            self.get_or_create_timeline_attr_key(
+                                "timeline.internal.rs.device_id".to_string(),
+                            )
+                            .await?,
                             // TODO: this includes array syntax in the ID
                             AttrVal::String(format!("{:x?}", device_id)),
                         ));
@@ -486,7 +498,7 @@ impl TracingModality {
         tick: u64,
     ) -> Result<(), IngestError> {
         let name = records
-            .remove(&"modality.name".into())
+            .remove(&"name".into())
             .or_else(|| records.remove(&"message".into()))
             .and_then(tracing_value_to_attr_val)
             .unwrap_or_else(|| metadata.name.as_str().into());
@@ -504,9 +516,9 @@ impl TracingModality {
         //));
 
         let severity = records
-            .remove(&"modality.severity".into())
+            .remove(&"severity".into())
             .and_then(tracing_value_to_attr_val)
-            .unwrap_or_else(|| format!("{:?}", metadata.level).into());
+            .unwrap_or_else(|| format!("{:?}", metadata.level).to_lowercase().into());
         packed_attrs.push((
             self.get_or_create_event_attr_key("event.severity".to_string())
                 .await?,
@@ -514,43 +526,43 @@ impl TracingModality {
         ));
 
         let module_path = records
-            .remove(&"modality.module_path".into())
+            .remove(&"source.module".into())
             .and_then(tracing_value_to_attr_val)
             .or_else(|| metadata.module_path.map(|mp| mp.as_str().into()));
         if let Some(module_path) = module_path {
             packed_attrs.push((
-                self.get_or_create_event_attr_key("event.module_path".to_string())
+                self.get_or_create_event_attr_key("event.source.module".to_string())
                     .await?,
                 module_path,
             ));
         }
 
         let source_file = records
-            .remove(&"modality.source_file".into())
+            .remove(&"source.file".into())
             .and_then(tracing_value_to_attr_val)
             .or_else(|| metadata.file.map(|mp| mp.as_str().into()));
         if let Some(source_file) = source_file {
             packed_attrs.push((
-                self.get_or_create_event_attr_key("event.source_file".to_string())
+                self.get_or_create_event_attr_key("event.source.file".to_string())
                     .await?,
                 source_file,
             ));
         }
 
         let source_line = records
-            .remove(&"modality.source_line".into())
+            .remove(&"source.line".into())
             .and_then(tracing_value_to_attr_val)
             .or_else(|| metadata.line.map(|mp| (mp as i64).into()));
         if let Some(source_line) = source_line {
             packed_attrs.push((
-                self.get_or_create_event_attr_key("event.source_line".to_string())
+                self.get_or_create_event_attr_key("event.source.line".to_string())
                     .await?,
                 source_line,
             ));
         }
 
         packed_attrs.push((
-            self.get_or_create_event_attr_key("event.logical_time".to_string())
+            self.get_or_create_event_attr_key("event.internal.rs.tick".to_string())
                 .await?,
             AttrVal::LogicalTime(LogicalTime::unary(tick)),
         ));
@@ -576,13 +588,12 @@ impl TracingModality {
                 continue;
             };
 
-            let key = if let Some(("modality", key)) = name.as_str().split_once('.') {
-                format!("event.{}", key)
-            } else {
-                format!("event.payload.{}", name.as_str())
-            };
+            let key = format!("event.{}", name.as_str());
 
-            packed_attrs.push((self.get_or_create_event_attr_key(key).await?, attrval));
+            packed_attrs.push((
+                self.get_or_create_event_attr_key(key.to_string()).await?,
+                attrval,
+            ));
         }
 
         Ok(())

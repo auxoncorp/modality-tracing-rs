@@ -41,8 +41,8 @@ fn main() {
                         match msg {
                             Message::Data(job) => {
                                 info!(
-                                    modality.interaction.remote_nonce=job.nonce,
-                                    modality.interaction.remote_timeline_id=?job.timeline_id.get_raw(),
+                                    interaction.remote_nonce=job.nonce,
+                                    interaction.remote_timeline_id=?job.timeline_id.get_raw(),
                                     job.num,
                                     "received",
                                 );
@@ -50,7 +50,7 @@ fn main() {
                                 let comp_span = info_span!(
                                     "computation",
                                     abouttodothething = true,
-                                    modality.foo = "bar"
+                                    foo = "bar"
                                 );
 
                                 let result = comp_span.in_scope(|| {
@@ -58,7 +58,7 @@ fn main() {
                                 });
                                 //let nonce = job.nonce + THREADS as u32;
                                 let nonce = job.nonce;
-                                info!(modality.nonce = nonce, source = ?timeline_id.get_raw(), result, "sending");
+                                info!(nonce = nonce, source = ?timeline_id.get_raw(), result, "sending");
                                 term_tx
                                     .send(Message::Data(Job {
                                         nonce,
@@ -82,7 +82,7 @@ fn main() {
         let start = rng.gen_range(0..=100) + 2;
         let target = (start as usize) as usize % THREADS;
         info!(
-            modality.nonce = i,
+            nonce = i,
             worker = target,
             input = start,
             source = ?timeline_id.get_raw(),
@@ -102,8 +102,8 @@ fn main() {
         match result {
             Message::Data(job) => {
                 info!(
-                    modality.interaction.remote_nonce=job.nonce,
-                    modality.interaction.remote_timeline_id=?job.timeline_id.get_raw(),
+                    interaction.remote_nonce=job.nonce,
+                    interaction.remote_timeline_id=?job.timeline_id.get_raw(),
                     job.num,
                     "result",
                 );

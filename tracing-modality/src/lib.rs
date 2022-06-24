@@ -11,7 +11,9 @@ use tracing_serde_subscriber::TSSubscriber;
 
 pub use tracing_serde_modality_ingest::TimelineId;
 
-/// Options used with [`TracingModality::init_with_options`].
+/// A `tracing` collector `Layer`.
+pub use tracing_serde_subscriber::TSLayer as ModalityLayer;
+
 pub use tracing_serde_modality_ingest::options::Options;
 
 #[derive(Debug, Error)]

@@ -44,8 +44,8 @@ fn main() {
                         Message::Data(job) => {
                             event!(
                                 Level::INFO, msg="Received message",
-                                modality.interaction.remote_nonce=job.nonce,
-                                modality.interaction.remote_timeline_id=?job.timeline_id.get_raw(),
+                                interaction.remote_nonce=job.nonce,
+                                interaction.remote_timeline_id=?job.timeline_id.get_raw(),
                                 job.num
                             );
 
@@ -55,7 +55,7 @@ fn main() {
                                 event!(
                                     Level::INFO,
                                     msg="Sending to terminal",
-                                    modality.nonce = job.nonce,
+                                    nonce = job.nonce,
                                     step
                                 );
                                 // println!("Send terminal");
@@ -66,7 +66,7 @@ fn main() {
                                 })).unwrap();
                             } else {
                                 let target = (step as usize) as usize % THREADS;
-                                event!(Level::INFO, msg="Sending to worker", modality.nonce=job.nonce, worker=target, step);
+                                event!(Level::INFO, msg="Sending to worker", nonce=job.nonce, worker=target, step);
                                 tx_chans[target].send(Message::Data(Job {
                                     nonce: job.nonce,
                                     num: step,
@@ -94,7 +94,7 @@ fn main() {
         event!(
             Level::INFO,
             msg = "Sending to worker",
-            modality.nonce = i,
+            nonce = i,
             worker = target,
             step = start,
         );

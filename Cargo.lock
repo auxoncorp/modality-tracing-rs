@@ -795,6 +795,7 @@ dependencies = [
  "tracing-core",
  "tracing-serde-modality-ingest",
  "tracing-serde-subscriber",
+ "tracing-subscriber",
 ]
 
 [[package]]

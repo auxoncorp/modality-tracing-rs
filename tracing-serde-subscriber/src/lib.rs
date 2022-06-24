@@ -14,7 +14,7 @@ use tracing_core::{
 use tracing_subscriber::{
     layer::{Context, Layer},
     prelude::*,
-    registry::Registry,
+    registry::{LookupSpan, Registry},
 };
 use anyhow::{Context as _};
 use uuid::Uuid;
@@ -146,16 +146,8 @@ impl TSSubscriber {
         Self::new_with_options(Default::default())
     }
 
-    pub fn new_with_options(mut opts: Options) -> impl Subscriber {
-        let run_id = Uuid::new_v4();
-        opts.add_metadata("run_id", run_id.to_string());
-
-        {
-            let mut global_opts = GLOBAL_OPTIONS.write();
-            *global_opts = Some(opts);
-        }
-
-        Registry::default().with(TSLayer)
+    pub fn new_with_options(opts: Options) -> impl Subscriber {
+        Registry::default().with(TSLayer::new_with_options(opts))
     }
 
     // another bit of type-based lies, this doesn't take an &self because we never build a Self
@@ -166,9 +158,49 @@ impl TSSubscriber {
     }
 }
 
-pub struct TSLayer;
+pub struct TSLayer {
+    _no_external_construct: (),
+}
 
-impl<S: Subscriber> Layer<S> for TSLayer {
+impl TSLayer {
+    pub fn new() -> Self {
+        Self::new_with_options(Default::default())
+    }
+
+    pub fn new_with_options(mut opts: Options) -> Self {
+        let run_id = Uuid::new_v4();
+        opts.add_metadata("run_id", run_id.to_string());
+
+        {
+            let mut global_opts = GLOBAL_OPTIONS.write();
+            *global_opts = Some(opts);
+        }
+
+        TSLayer {
+            _no_external_construct: (),
+        }
+    }
+
+    /// This is an optional step that allows you to handle connection errors at initialization
+    /// time. If this is not called it will be called implicitly during the handling of the first
+    /// trace event.
+    pub fn connect(&self) -> Result<(), ConnectError> {
+        let first_local_handler = TSHandler::new()?;
+        HANDLER.with(|h| h.manual_init(first_local_handler));
+        Ok(())
+    }
+}
+
+impl Default for TSLayer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<S> Layer<S> for TSLayer
+where
+    S: Subscriber + for<'a> LookupSpan<'a>,
+{
     fn enabled(&self, _metadata: &tracing_core::Metadata<'_>, _ctx: Context<'_, S>) -> bool {
         // always enabled for all levels
         true

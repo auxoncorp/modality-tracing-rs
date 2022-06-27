@@ -17,7 +17,7 @@ tracing-serde-modality-ingest = { version = "0.1", path = "../tracing-serde-moda
 tracing-serde-subscriber = { version = "0.1", path = "../tracing-serde-subscriber" }
 
 [dev-dependencies]
-# used for "collatz" example
+# used for some examples
 rand = { version = "0.8.5" }
 ctrlc = "3.2.2"
 # used for pipeline example

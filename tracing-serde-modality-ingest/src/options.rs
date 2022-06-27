@@ -53,13 +53,25 @@ impl Options {
     ///
     /// This can be called multiple times.
     pub fn add_metadata<K: AsRef<str>, V: Into<AttrVal>>(&mut self, key: K, value: V) {
-        self.metadata
-            .push((format!("timeline.{}", key.as_ref()), value.into()));
+        let key = key.as_ref();
+        let key = if key.starts_with("timeline.") {
+            key.to_string()
+        } else {
+            format!("timeline.{}", key)
+        };
+
+        self.metadata.push((key, value.into()));
     }
     /// A chainable version of [add_metadata](Self::add_metadata).
     pub fn with_metadata<K: AsRef<str>, V: Into<AttrVal>>(mut self, key: K, value: V) -> Self {
-        self.metadata
-            .push((format!("timeline.{}", key.as_ref()), value.into()));
+        let key = key.as_ref();
+        let key = if key.starts_with("timeline.") {
+            key.to_string()
+        } else {
+            format!("timeline.{}", key)
+        };
+
+        self.metadata.push((key, value.into()));
         self
     }
 

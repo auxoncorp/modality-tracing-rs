@@ -388,7 +388,7 @@ impl TracingModality {
     }
 
     async fn get_or_create_event_attr_key(&mut self, key: String) -> Result<AttrKey, IngestError> {
-        let key = if key.starts_with("event.")  {
+        let key = if key.starts_with("event.") {
             key
         } else {
             format!("event.{key}")
@@ -570,10 +570,7 @@ impl TracingModality {
                 format!("event.{}", name.as_str())
             };
 
-            packed_attrs.push((
-                self.get_or_create_event_attr_key(key).await?,
-                attrval,
-            ));
+            packed_attrs.push((self.get_or_create_event_attr_key(key).await?, attrval));
         }
 
         Ok(())

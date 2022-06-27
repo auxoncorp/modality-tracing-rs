@@ -196,7 +196,6 @@ impl TSLayer {
             panic!("Cannot connect to to modality: {e}")
         }
     }
-
 }
 
 impl Default for TSLayer {

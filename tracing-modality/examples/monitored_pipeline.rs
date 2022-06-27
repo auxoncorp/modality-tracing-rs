@@ -17,7 +17,7 @@ fn main() {
         modality_layer.connect_or_panic();
 
         let subscriber = Registry::default()
-            .with(ModalityLayer::new())
+            .with(modality_layer)
             .with(Layer::default());
 
         let disp = Dispatch::new(subscriber);

@@ -1,10 +1,9 @@
 pub mod options;
 
 use anyhow::Context;
-use modality_ingest_protocol::types::Nanoseconds;
-use modality_ingest_protocol::{
+use modality_ingest_client::{
     client::{BoundTimelineState, IngestClient},
-    types::{AttrVal, BigInt, EventAttrKey, LogicalTime, TimelineAttrKey, Uuid},
+    types::{AttrKey, AttrVal, BigInt, LogicalTime, Nanoseconds, Uuid},
     IngestError as SdkIngestError,
 };
 use once_cell::sync::Lazy;
@@ -21,7 +20,7 @@ use tracing_serde_structured::{
 };
 use tracing_serde_wire::{Packet, TWOther, TracingWire};
 
-pub use modality_ingest_protocol::types::TimelineId;
+pub use modality_ingest_client::types::TimelineId;
 pub use options::Options;
 
 // spans can be defined on any thread and then sent to another and entered/etc, track globally
@@ -51,8 +50,8 @@ pub enum IngestError {
 
 pub struct TracingModality {
     client: IngestClient<BoundTimelineState>,
-    event_keys: HashMap<String, EventAttrKey>,
-    timeline_keys: HashMap<String, TimelineAttrKey>,
+    event_keys: HashMap<String, AttrKey>,
+    timeline_keys: HashMap<String, AttrKey>,
     timeline_id: TimelineId,
 }
 
@@ -64,7 +63,8 @@ impl TracingModality {
     }
 
     pub async fn connect_with_options(options: Options) -> Result<Self, ConnectError> {
-        let unauth_client = IngestClient::new(options.server_addr)
+        let url = url::Url::parse(&format!("modality-ingest://{}/", options.server_addr)).unwrap();
+        let unauth_client = IngestClient::connect(&url, false)
             .await
             .context("init ingest client")?;
 
@@ -455,14 +455,14 @@ impl TracingModality {
     async fn get_or_create_timeline_attr_key(
         &mut self,
         key: String,
-    ) -> Result<TimelineAttrKey, IngestError> {
+    ) -> Result<AttrKey, IngestError> {
         if let Some(id) = self.timeline_keys.get(&key) {
             return Ok(*id);
         }
 
         let interned_key = self
             .client
-            .timeline_attr_key(key.clone())
+            .attr_key(key.clone())
             .await
             .context("define timeline attr key")?;
 
@@ -471,17 +471,14 @@ impl TracingModality {
         Ok(interned_key)
     }
 
-    async fn get_or_create_event_attr_key(
-        &mut self,
-        key: String,
-    ) -> Result<EventAttrKey, IngestError> {
+    async fn get_or_create_event_attr_key(&mut self, key: String) -> Result<AttrKey, IngestError> {
         if let Some(id) = self.event_keys.get(&key) {
             return Ok(*id);
         }
 
         let interned_key = self
             .client
-            .event_attr_key(key.clone())
+            .attr_key(key.clone())
             .await
             .context("define event attr key")?;
 
@@ -492,7 +489,7 @@ impl TracingModality {
 
     async fn pack_common_attrs<'a>(
         &mut self,
-        packed_attrs: &mut Vec<(EventAttrKey, AttrVal)>,
+        packed_attrs: &mut Vec<(AttrKey, AttrVal)>,
         metadata: SerializeMetadata<'a>,
         mut records: RecordMap<'a>,
         tick: u64,

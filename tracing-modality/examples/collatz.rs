@@ -31,58 +31,72 @@ fn main() {
         .collect();
     let tx_chans: Vec<Sender<Message>> = channels.iter().map(|(_i, tx, _rx)| tx.clone()).collect();
 
-    let threads: Vec<JoinHandle<()>> = channels.drain(..).map(|(i, _tx, rx)| {
-        let term_tx = terminal_channel.0.clone();
-        let tx_chans = tx_chans.clone();
-        Builder::new()
-            .name(format!("Worker%{:02}", i))
-            .spawn(move || {
-                let timeline_id = timeline_id();
-                let _span = span!(Level::INFO, "Receiving").entered();
-                while let Ok(msg) = rx.recv() {
-                    match msg {
-                        Message::Data(job) => {
-                            event!(
-                                Level::INFO, msg="Received message",
-                                interaction.remote_nonce=job.nonce,
-                                interaction.remote_timeline_id=?job.timeline_id.get_raw(),
-                                job.num
-                            );
-
-                            let step = collatz(job.num);
-                            event!(Level::INFO, step);
-                            if step == 1 {
+    let threads: Vec<JoinHandle<()>> = channels
+        .drain(..)
+        .map(|(i, _tx, rx)| {
+            let term_tx = terminal_channel.0.clone();
+            let tx_chans = tx_chans.clone();
+            Builder::new()
+                .name(format!("Worker%{:02}", i))
+                .spawn(move || {
+                    let timeline_id = timeline_id();
+                    let _span = span!(Level::INFO, "Receiving").entered();
+                    while let Ok(msg) = rx.recv() {
+                        match msg {
+                            Message::Data(job) => {
                                 event!(
-                                    Level::INFO,
-                                    msg="Sending to terminal",
-                                    nonce = job.nonce,
-                                    step
+                                    Level::INFO, msg="Received message",
+                                    interaction.remote_nonce=job.nonce,
+                                    interaction.remote_timeline_id=?job.timeline_id.get_raw(),
+                                    job.num
                                 );
-                                // println!("Send terminal");
-                                term_tx.send(Message::Data(Job {
-                                    nonce: job.nonce,
-                                    num: 1,
-                                    timeline_id,
-                                })).unwrap();
-                            } else {
-                                let target = (step as usize) as usize % THREADS;
-                                event!(Level::INFO, msg="Sending to worker", nonce=job.nonce, worker=target, step);
-                                tx_chans[target].send(Message::Data(Job {
-                                    nonce: job.nonce,
-                                    num: step,
-                                    timeline_id,
-                                })).unwrap();
+
+                                let step = collatz(job.num);
+                                event!(Level::INFO, step);
+                                if step == 1 {
+                                    event!(
+                                        Level::INFO,
+                                        msg = "Sending to terminal",
+                                        nonce = job.nonce,
+                                        step
+                                    );
+                                    // println!("Send terminal");
+                                    term_tx
+                                        .send(Message::Data(Job {
+                                            nonce: job.nonce,
+                                            num: 1,
+                                            timeline_id,
+                                        }))
+                                        .unwrap();
+                                } else {
+                                    let target = (step as usize) as usize % THREADS;
+                                    event!(
+                                        Level::INFO,
+                                        msg = "Sending to worker",
+                                        nonce = job.nonce,
+                                        worker = target,
+                                        step
+                                    );
+                                    tx_chans[target]
+                                        .send(Message::Data(Job {
+                                            nonce: job.nonce,
+                                            num: step,
+                                            timeline_id,
+                                        }))
+                                        .unwrap();
+                                }
                             }
-                        },
-                        Message::AllDone => {
-                            event!(Level::WARN, "All done!");
-                            break;
+                            Message::AllDone => {
+                                event!(Level::WARN, "All done!");
+                                break;
+                            }
                         }
+                        std::thread::yield_now();
                     }
-                    std::thread::yield_now();
-                }
-            }).unwrap()
-    }).collect();
+                })
+                .unwrap()
+        })
+        .collect();
 
     let timeline_id = timeline_id();
 
@@ -116,7 +130,7 @@ fn main() {
         t.send(Message::AllDone).unwrap();
     }
 
-    for t in threads.into_iter() {
+    for t in threads {
         t.join().unwrap();
     }
 }

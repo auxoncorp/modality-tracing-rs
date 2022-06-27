@@ -14,7 +14,7 @@ fn main() {
     // setup custom tracer including ModalityLayer
     {
         let modality_layer = ModalityLayer::new();
-        modality_layer.connect().expect("connect to modality");
+        modality_layer.connect_or_panic();
 
         let subscriber = Registry::default()
             .with(ModalityLayer::new())

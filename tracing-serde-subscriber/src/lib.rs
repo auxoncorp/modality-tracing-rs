@@ -189,6 +189,14 @@ impl TSLayer {
         HANDLER.with(|h| h.manual_init(first_local_handler));
         Ok(())
     }
+
+    /// Try to connect, and panic if that's not possible.
+    pub fn connect_or_panic(&self) {
+        if let Err(e) = self.connect() {
+            panic!("Cannot connect to to modality: {e}")
+        }
+    }
+
 }
 
 impl Default for TSLayer {

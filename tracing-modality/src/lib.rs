@@ -22,9 +22,11 @@ pub enum InitError {
     /// `MODALITY_LICENSE KEY` environment variable.
     #[error("Authentication required, set init option or env var MODALITY_LICENSE_KEY")]
     AuthRequired,
+
     /// Auth was provided, but was not accepted by modality.
     #[error(transparent)]
     AuthFailed(ConnectError),
+
     /// Errors that it is assumed there is no way to handle without human intervention, meant for
     /// consumers to just print and carry on or panic.
     #[error(transparent)]

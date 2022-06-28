@@ -11,15 +11,29 @@ pub struct Options {
 
 impl Options {
     pub fn new() -> Options {
-        let auth = std::env::var("MODALITY_AUTH_TOKEN")
-            .ok()
-            .and_then(|t| hex::decode(t).ok());
+        let auth = Self::resolve_auth_token();
         let server_addr = ([127, 0, 0, 1], 14182).into();
         Options {
             auth,
             metadata: Vec::new(),
             server_addr,
         }
+    }
+
+    fn resolve_auth_token() -> Option<Vec<u8>> {
+        if let Some(from_env) = std::env::var("MODALITY_AUTH_TOKEN")
+            .ok()
+            .and_then(|t| hex::decode(t).ok())
+        {
+            return Some(from_env);
+        }
+
+        dirs::config_dir()
+            .and_then(|config| {
+                let file_path = config.join("modality_cli").join(".user_auth_token");
+                std::fs::read_to_string(file_path).ok()
+            })
+            .and_then(|t| hex::decode(t.trim()).ok())
     }
 
     /// Set an auth token to be provided to modality. Tokens should be a hex stringish value.

@@ -11,15 +11,29 @@ pub struct Options {
 
 impl Options {
     pub fn new() -> Options {
-        let auth = std::env::var("MODALITY_AUTH_TOKEN")
-            .ok()
-            .and_then(|t| hex::decode(t).ok());
+        let auth = Self::resolve_auth_token();
         let server_addr = ([127, 0, 0, 1], 14182).into();
         Options {
             auth,
             metadata: Vec::new(),
             server_addr,
         }
+    }
+
+    fn resolve_auth_token() -> Option<Vec<u8>> {
+        if let Some(from_env) = std::env::var("MODALITY_AUTH_TOKEN")
+            .ok()
+            .and_then(|t| hex::decode(t).ok())
+        {
+            return Some(from_env);
+        }
+
+        dirs::config_dir()
+            .and_then(|config| {
+                let file_path = config.join("modality_cli").join(".user_auth_token");
+                std::fs::read_to_string(file_path).ok()
+            })
+            .and_then(|t| hex::decode(t.trim()).ok())
     }
 
     /// Set an auth token to be provided to modality. Tokens should be a hex stringish value.
@@ -53,13 +67,25 @@ impl Options {
     ///
     /// This can be called multiple times.
     pub fn add_metadata<K: AsRef<str>, V: Into<AttrVal>>(&mut self, key: K, value: V) {
-        self.metadata
-            .push((format!("timeline.{}", key.as_ref()), value.into()));
+        let key = key.as_ref();
+        let key = if key.starts_with("timeline.") {
+            key.to_string()
+        } else {
+            format!("timeline.{}", key)
+        };
+
+        self.metadata.push((key, value.into()));
     }
     /// A chainable version of [add_metadata](Self::add_metadata).
     pub fn with_metadata<K: AsRef<str>, V: Into<AttrVal>>(mut self, key: K, value: V) -> Self {
-        self.metadata
-            .push((format!("timeline.{}", key.as_ref()), value.into()));
+        let key = key.as_ref();
+        let key = if key.starts_with("timeline.") {
+            key.to_string()
+        } else {
+            format!("timeline.{}", key)
+        };
+
+        self.metadata.push((key, value.into()));
         self
     }
 

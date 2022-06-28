@@ -199,90 +199,6 @@ impl TracingModality {
                     kind,
                 ));
 
-                // handle manually to type the AttrVal correctly
-                let remote_timeline_id = records
-                    .remove(&"interaction.remote_timeline_id".into())
-                    .and_then(tracing_value_to_attr_val);
-                if let Some(attrval) = remote_timeline_id {
-                    let remote_timeline_id = if let AttrVal::String(string) = attrval {
-                        use std::str::FromStr;
-                        if let Ok(uuid) = Uuid::from_str(&string) {
-                            AttrVal::TimelineId(Box::new(uuid.into()))
-                        } else {
-                            AttrVal::String(string)
-                        }
-                    } else {
-                        attrval
-                    };
-
-                    packed_attrs.push((
-                        self.get_or_create_event_attr_key(
-                            "event.interaction.remote_timeline_id".into(),
-                        )
-                        .await?,
-                        remote_timeline_id,
-                    ));
-                }
-                // Manually retype the remote_timestamp
-                let remote_timestamp = records
-                    .remove(&"interaction.remote_timestamp".into())
-                    .and_then(tracing_value_to_attr_val);
-                if let Some(attrval) = remote_timestamp {
-                    let remote_timestamp = match attrval {
-                        AttrVal::Integer(i) if i >= 0 => {
-                            AttrVal::Timestamp(Nanoseconds::from(i as u64))
-                        }
-                        AttrVal::BigInt(i) if *i >= 0 && *i <= u64::MAX as i128 => {
-                            AttrVal::Timestamp(Nanoseconds::from(*i as u64))
-                        }
-                        AttrVal::Timestamp(t) => AttrVal::Timestamp(t),
-                        x => x,
-                    };
-
-                    packed_attrs.push((
-                        self.get_or_create_event_attr_key(
-                            "event.interaction.remote_timestamp".into(),
-                        )
-                        .await?,
-                        remote_timestamp,
-                    ));
-                }
-
-                // Manually retype the local timestamp
-                let local_timestamp = records
-                    .remove(&"timestamp".into())
-                    .and_then(tracing_value_to_attr_val);
-                if let Some(attrval) = local_timestamp {
-                    let remote_timestamp = match attrval {
-                        AttrVal::Integer(i) if i >= 0 => {
-                            AttrVal::Timestamp(Nanoseconds::from(i as u64))
-                        }
-                        AttrVal::BigInt(i) if *i >= 0 && *i <= u64::MAX as i128 => {
-                            AttrVal::Timestamp(Nanoseconds::from(*i as u64))
-                        }
-                        AttrVal::Timestamp(t) => AttrVal::Timestamp(t),
-                        x => x,
-                    };
-
-                    packed_attrs.push((
-                        self.get_or_create_event_attr_key("event.timestamp".into())
-                            .await?,
-                        remote_timestamp,
-                    ));
-                } else if let Ok(duration_since_epoch) =
-                    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
-                {
-                    let duration_since_epoch_in_nanos_res: Result<u64, _> =
-                        duration_since_epoch.as_nanos().try_into();
-                    if let Ok(duration_since_epoch_in_nanos) = duration_since_epoch_in_nanos_res {
-                        packed_attrs.push((
-                            self.get_or_create_event_attr_key("event.timestamp".into())
-                                .await?,
-                            AttrVal::Timestamp(Nanoseconds::from(duration_since_epoch_in_nanos)),
-                        ));
-                    }
-                }
-
                 self.pack_common_attrs(&mut packed_attrs, ev.metadata, records, pkt.tick)
                     .await?;
 
@@ -472,6 +388,12 @@ impl TracingModality {
     }
 
     async fn get_or_create_event_attr_key(&mut self, key: String) -> Result<AttrKey, IngestError> {
+        let key = if key.starts_with("event.") {
+            key
+        } else {
+            format!("event.{key}")
+        };
+
         if let Some(id) = self.event_keys.get(&key) {
             return Ok(*id);
         }
@@ -504,13 +426,6 @@ impl TracingModality {
                 .await?,
             name,
         ));
-
-        // This duplicates the data from `source_file` and `source_line`.
-        //packed_attrs.push((
-        //    self.get_or_create_event_attr_key("event.metadata.target".to_string())
-        //        .await?,
-        //    AttrVal::String(metadata.target.to_string()),
-        //));
 
         let severity = records
             .remove(&"severity".into())
@@ -564,18 +479,82 @@ impl TracingModality {
             AttrVal::LogicalTime(LogicalTime::unary(tick)),
         ));
 
-        // These 2 duplicate the `kind` field
-        //packed_attrs.push((
-        //    self.get_or_create_event_attr_key("event.metadata.is_span".to_string())
-        //        .await?,
-        //    AttrVal::Bool(metadata.is_span),
-        //));
+        // handle manually to type the AttrVal correctly
+        let remote_timeline_id = records
+            .remove(&"interaction.remote_timeline_id".into())
+            .and_then(tracing_value_to_attr_val);
+        if let Some(attrval) = remote_timeline_id {
+            let remote_timeline_id = if let AttrVal::String(string) = attrval {
+                use std::str::FromStr;
+                if let Ok(uuid) = Uuid::from_str(&string) {
+                    AttrVal::TimelineId(Box::new(uuid.into()))
+                } else {
+                    AttrVal::String(string)
+                }
+            } else {
+                attrval
+            };
 
-        //packed_attrs.push((
-        //    self.get_or_create_event_attr_key("event.metadata.is_event".to_string())
-        //        .await?,
-        //    AttrVal::Bool(metadata.is_event),
-        //));
+            packed_attrs.push((
+                self.get_or_create_event_attr_key("event.interaction.remote_timeline_id".into())
+                    .await?,
+                remote_timeline_id,
+            ));
+        }
+
+        // Manually retype the remote_timestamp
+        let remote_timestamp = records
+            .remove(&"interaction.remote_timestamp".into())
+            .and_then(tracing_value_to_attr_val);
+        if let Some(attrval) = remote_timestamp {
+            let remote_timestamp = match attrval {
+                AttrVal::Integer(i) if i >= 0 => AttrVal::Timestamp(Nanoseconds::from(i as u64)),
+                AttrVal::BigInt(i) if *i >= 0 && *i <= u64::MAX as i128 => {
+                    AttrVal::Timestamp(Nanoseconds::from(*i as u64))
+                }
+                AttrVal::Timestamp(t) => AttrVal::Timestamp(t),
+                x => x,
+            };
+
+            packed_attrs.push((
+                self.get_or_create_event_attr_key("event.interaction.remote_timestamp".into())
+                    .await?,
+                remote_timestamp,
+            ));
+        }
+
+        // Manually retype the local timestamp
+        let local_timestamp = records
+            .remove(&"timestamp".into())
+            .and_then(tracing_value_to_attr_val);
+        if let Some(attrval) = local_timestamp {
+            let remote_timestamp = match attrval {
+                AttrVal::Integer(i) if i >= 0 => AttrVal::Timestamp(Nanoseconds::from(i as u64)),
+                AttrVal::BigInt(i) if *i >= 0 && *i <= u64::MAX as i128 => {
+                    AttrVal::Timestamp(Nanoseconds::from(*i as u64))
+                }
+                AttrVal::Timestamp(t) => AttrVal::Timestamp(t),
+                x => x,
+            };
+
+            packed_attrs.push((
+                self.get_or_create_event_attr_key("event.timestamp".into())
+                    .await?,
+                remote_timestamp,
+            ));
+        } else if let Ok(duration_since_epoch) =
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
+        {
+            let duration_since_epoch_in_nanos_res: Result<u64, _> =
+                duration_since_epoch.as_nanos().try_into();
+            if let Ok(duration_since_epoch_in_nanos) = duration_since_epoch_in_nanos_res {
+                packed_attrs.push((
+                    self.get_or_create_event_attr_key("event.timestamp".into())
+                        .await?,
+                    AttrVal::Timestamp(Nanoseconds::from(duration_since_epoch_in_nanos)),
+                ));
+            }
+        }
 
         // pack any remaining records
         for (name, value) in records {
@@ -585,12 +564,13 @@ impl TracingModality {
                 continue;
             };
 
-            let key = format!("event.{}", name.as_str());
+            let key = if name.starts_with("event.") {
+                name.to_string()
+            } else {
+                format!("event.{}", name.as_str())
+            };
 
-            packed_attrs.push((
-                self.get_or_create_event_attr_key(key.to_string()).await?,
-                attrval,
-            ));
+            packed_attrs.push((self.get_or_create_event_attr_key(key).await?, attrval));
         }
 
         Ok(())

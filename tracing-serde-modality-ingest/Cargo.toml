@@ -3,7 +3,7 @@ name = "tracing-serde-modality-ingest"
 version = "0.1.0"
 edition = "2021"
 description = "This crate is currently only meant for internal use within `tracing-modality`"
-respoitory = "https://github.com/auxon/modality-tracing-rs"
+repository = "https://github.com/auxon/modality-tracing-rs"
 license = "Apache-2.0"
 
 [dependencies]
@@ -17,3 +17,4 @@ tokio = { version = "1", features = ["full"] }
 tracing-serde-structured = "0.1"
 tracing-serde-wire = "0.1"
 url = "2"
+dirs = "4"

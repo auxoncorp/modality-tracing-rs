@@ -26,3 +26,4 @@ uuid = { version = "1", features = ["v4"] }
 # used for some examples
 rand = { version = "0.8.5" }
 ctrlc = "3.2.2"
+procspawn = {version = "0.10", features = ["test-support"] }

@@ -60,6 +60,26 @@ impl TracingModality {
         Ok(Self { ingest_handle })
     }
 
+    /// Initialize with default options and set as the global default tracer.
+    pub async fn async_init() -> Result<Self, InitError> {
+        Self::async_init_with_options(Default::default()).await
+    }
+
+    /// Initialize with the provided options and set as the global default tracer.
+    pub async fn async_init_with_options(opts: Options) -> Result<Self, InitError> {
+        let mut layer = ModalityLayer::async_init_with_options(opts)
+            .await
+            .context("initialize ModalityLayer")?;
+        let ingest_handle = layer
+            .take_handle()
+            .expect("take handle on brand new layer somehow failed");
+
+        let disp = Dispatch::new(layer.into_subscriber());
+        tracing::dispatcher::set_global_default(disp).unwrap();
+
+        Ok(Self { ingest_handle })
+    }
+
     /// Stop accepting new trace events, flush all existing events, and stop ingest thread.
     pub fn finish(self) {
         self.ingest_handle.finish();

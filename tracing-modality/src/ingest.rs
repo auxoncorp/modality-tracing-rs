@@ -1,7 +1,9 @@
 pub use modality_ingest_client::types::TimelineId;
 
-use crate::layer::{RecordMap, TracingValue};
-use crate::Options;
+use crate::{
+    layer::{RecordMap, TracingValue},
+    Options,
+};
 use anyhow::Context;
 use modality_ingest_client::{
     client::{BoundTimelineState, IngestClient},
@@ -204,6 +206,15 @@ impl ModalityIngest {
             thread: Some(join_handle),
             finish_sender: Some(finish_sender),
         }
+    }
+
+    pub(crate) async fn spawn_task(self) -> UnboundedSender<WrappedMessage> {
+        let (send, recv) = mpsc::unbounded_channel();
+        let (finish_sender, finish_receiver) = oneshot::channel();
+
+        let _ = tokio::spawn(self.handler_task(recv, finish_receiver));
+
+        send
     }
 
     async fn handler_task(

@@ -5,6 +5,7 @@ use tracing_modality;
 procspawn::enable_test_support!();
 
 #[test]
+#[ignore]
 fn test_basic() {
     let modality_addr = common::modality_null_mock();
 

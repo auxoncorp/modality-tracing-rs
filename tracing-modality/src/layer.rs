@@ -3,7 +3,7 @@ use crate::options::Options;
 use crate::InitError;
 
 use crate::ingest;
-use crate::ingest::{ModalityIngest, ModalityIngestHandle, WrappedMessage};
+use crate::ingest::{ModalityIngest, ModalityIngestThreadHandle, WrappedMessage};
 
 use anyhow::Context as _;
 use once_cell::sync::Lazy;
@@ -43,7 +43,7 @@ struct SpanName(String);
 
 pub struct ModalityLayer {
     sender: UnboundedSender<WrappedMessage>,
-    ingest_handle: Option<ModalityIngestHandle>,
+    ingest_handle: Option<ModalityIngestThreadHandle>,
 }
 
 struct LocalMetadata {
@@ -80,6 +80,28 @@ impl ModalityLayer {
         })
     }
 
+    /// Initialize a new `ModalityLayer`, with default options.
+    pub async fn async_init() -> Result<Self, InitError> {
+        Self::async_init_with_options(Default::default()).await
+    }
+
+    /// Initialize a new `ModalityLayer`, with specified options.
+    pub async fn async_init_with_options(mut opts: Options) -> Result<Self, InitError> {
+        let run_id = Uuid::new_v4();
+        opts.add_metadata("run_id", run_id.to_string());
+
+        let ingest = ModalityIngest::async_connect(opts)
+            .await
+            .context("connect to modality")?;
+        let ingest_handle = ingest.spawn_thread();
+        let sender = ingest_handle.ingest_sender.clone();
+
+        Ok(ModalityLayer {
+            ingest_handle: Some(ingest_handle),
+            sender,
+        })
+    }
+
     /// Convert this `Layer` into a `Subscriber`by by layering it on a new instace of `tracing`'s
     /// `Registry`.
     pub fn into_subscriber(self) -> impl Subscriber {
@@ -90,7 +112,7 @@ impl ModalityLayer {
     ///
     /// This handle is primarily for calling [`ModalityIngestHandle::finish()`] at the end of your
     /// main thread.
-    pub fn take_handle(&mut self) -> Option<ModalityIngestHandle> {
+    pub fn take_handle(&mut self) -> Option<ModalityIngestThreadHandle> {
         self.ingest_handle.take()
     }
 

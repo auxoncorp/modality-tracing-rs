@@ -7,7 +7,7 @@ mod ingest;
 mod layer;
 pub mod options;
 
-pub use ingest::{ModalityIngestHandle, TimelineId};
+pub use ingest::{ModalityIngestThreadHandle, TimelineId};
 pub use layer::ModalityLayer;
 pub use options::Options;
 
@@ -37,7 +37,7 @@ pub enum InitError {
 /// A global tracer instance for [tracing.rs](https://tracing.rs/) that sends traces via a network
 /// socket to [Modality](https://auxon.io/).
 pub struct TracingModality {
-    ingest_handle: ModalityIngestHandle,
+    ingest_handle: ModalityIngestThreadHandle,
 }
 
 impl TracingModality {
@@ -50,6 +50,26 @@ impl TracingModality {
     pub fn init_with_options(opts: Options) -> Result<Self, InitError> {
         let mut layer =
             ModalityLayer::init_with_options(opts).context("initialize ModalityLayer")?;
+        let ingest_handle = layer
+            .take_handle()
+            .expect("take handle on brand new layer somehow failed");
+
+        let disp = Dispatch::new(layer.into_subscriber());
+        tracing::dispatcher::set_global_default(disp).unwrap();
+
+        Ok(Self { ingest_handle })
+    }
+
+    /// Initialize with default options and set as the global default tracer.
+    pub async fn async_init() -> Result<Self, InitError> {
+        Self::async_init_with_options(Default::default()).await
+    }
+
+    /// Initialize with the provided options and set as the global default tracer.
+    pub async fn async_init_with_options(opts: Options) -> Result<Self, InitError> {
+        let mut layer = ModalityLayer::async_init_with_options(opts)
+            .await
+            .context("initialize ModalityLayer")?;
         let ingest_handle = layer
             .take_handle()
             .expect("take handle on brand new layer somehow failed");

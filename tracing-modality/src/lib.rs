@@ -3,24 +3,25 @@
 // (almost) always be called from
 #![allow(clippy::needless_doctest_main)]
 
-use anyhow::Context;
+mod ingest;
+mod layer;
+pub mod options;
+
+pub use ingest::TimelineId;
+pub use layer::ModalityLayer;
+pub use options::Options;
+
+use anyhow::Context as _;
+use ingest::{ConnectError, ModalityIngestHandle};
+use std::fmt::Debug;
 use thiserror::Error;
 use tracing_core::Dispatch;
-use tracing_serde_modality_ingest::ConnectError;
-use tracing_serde_subscriber::TSSubscriber;
-
-pub use tracing_serde_modality_ingest::TimelineId;
-
-/// A `tracing` collector `Layer`.
-pub use tracing_serde_subscriber::TSLayer as ModalityLayer;
-
-pub use tracing_serde_modality_ingest::options::Options;
 
 #[derive(Debug, Error)]
 pub enum InitError {
     /// No auth was provided, set with [`Options::set_auth`]/[`Options::with_auth`] or set the
-    /// `MODALITY_LICENSE KEY` environment variable.
-    #[error("Authentication required, set init option or env var MODALITY_LICENSE_KEY")]
+    /// `MODALITY_AUTH_TOKEN` environment variable.
+    #[error("Authentication required, set init option or env var MODALITY_AUTH_TOKEN")]
     AuthRequired,
 
     /// Auth was provided, but was not accepted by modality.
@@ -35,32 +36,38 @@ pub enum InitError {
 
 /// A global tracer instance for [tracing.rs](https://tracing.rs/) that sends traces via a network
 /// socket to [Modality](https://auxon.io/).
-pub struct TracingModality {}
+pub struct TracingModality {
+    ingest_handle: ModalityIngestHandle,
+}
 
 impl TracingModality {
     /// Initialize with default options and set as the global default tracer.
     pub fn init() -> Result<Self, InitError> {
-        let disp = Dispatch::new(TSSubscriber::new());
-        tracing::dispatcher::set_global_default(disp).unwrap();
-
-        TSSubscriber::connect().context("connect to modality")?;
-
-        Ok(Self {})
+        Self::init_with_options(Default::default())
     }
 
     /// Initialize with the provided options and set as the global default tracer.
-    pub fn init_with_options(opt: Options) -> Result<Self, InitError> {
-        let disp = Dispatch::new(TSSubscriber::new_with_options(opt));
+    pub fn init_with_options(opts: Options) -> Result<Self, InitError> {
+        let mut layer =
+            ModalityLayer::init_with_options(opts).context("initialize ModalityLayer")?;
+        let ingest_handle = layer
+            .take_handle()
+            .expect("take handle on brand new layer somehow failed");
+
+        let disp = Dispatch::new(layer.into_subscriber());
         tracing::dispatcher::set_global_default(disp).unwrap();
 
-        TSSubscriber::connect().context("connect to modality")?;
+        Ok(Self { ingest_handle })
+    }
 
-        Ok(Self {})
+    /// Stop accepting new trace events, flush all existing events, and stop ingest thread.
+    pub fn finish(&mut self) {
+        self.ingest_handle.finish();
     }
 }
 
 /// Retrieve the current local timeline ID. Useful for for sending alongside data and a custom nonce
 /// for recording timeline interactions on remote timelines.
 pub fn timeline_id() -> TimelineId {
-    tracing_serde_subscriber::timeline_id()
+    ingest::current_timeline()
 }

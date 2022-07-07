@@ -12,9 +12,12 @@ use tracing_subscriber::{fmt::Layer, layer::SubscriberExt, Registry};
 
 fn main() {
     // setup custom tracer including ModalityLayer
-    {
-        let modality_layer = ModalityLayer::new();
-        modality_layer.connect_or_panic();
+    let mut modality = {
+        let mut modality_layer = ModalityLayer::init().expect("initialize ModalityLayer");
+
+        let modality_ingest_handle = modality_layer
+            .take_handle()
+            .expect("handle exists on new layer");
 
         let subscriber = Registry::default()
             .with(modality_layer)
@@ -22,7 +25,9 @@ fn main() {
 
         let disp = Dispatch::new(subscriber);
         tracing::dispatcher::set_global_default(disp).expect("set global tracer");
-    }
+
+        modality_ingest_handle
+    };
 
     // Enable signal handling for convenient process termination.
     let shutdown_requested = Arc::new(AtomicBool::new(false));
@@ -110,6 +115,8 @@ fn main() {
             tracing::info!(component = component.name(), "Joined thread");
         }
     }
+
+    modality.finish();
 }
 
 const CONSUMER_CHANNEL_SIZE: usize = 64;

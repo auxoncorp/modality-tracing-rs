@@ -17,7 +17,7 @@ struct Job {
 }
 
 fn main() {
-    TracingModality::init().expect("init tracing");
+    let mut modality = TracingModality::init().expect("init tracing");
     let mut rng = thread_rng();
 
     let (terminal_tx, terminal_rx): (Sender<Message>, Receiver<Message>) = channel();
@@ -116,4 +116,7 @@ fn main() {
     for t in threads {
         t.join().unwrap();
     }
+
+    // end the modality ingest thread, flushing all already written events to modality
+    modality.finish();
 }

@@ -187,7 +187,7 @@ impl ModalityIngest {
                     .expect("build local tokio current thread runtime")
             });
 
-            rt.block_on(self.handler_task(recv, finish_receiver))
+            let _ = rt.block_on(rt.spawn(self.handler_task(recv, finish_receiver)));
         });
 
         ModalityIngestHandle {

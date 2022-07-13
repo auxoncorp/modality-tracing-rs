@@ -7,6 +7,7 @@ pub struct Options {
     pub(crate) auth: Option<Vec<u8>>,
     pub(crate) metadata: Vec<(String, AttrVal)>,
     pub(crate) server_addr: SocketAddr,
+    pub(crate) self_tracing: bool,
 }
 
 impl Options {
@@ -17,6 +18,7 @@ impl Options {
             auth,
             metadata: Vec::new(),
             server_addr,
+            self_tracing: false
         }
     }
 
@@ -98,6 +100,18 @@ impl Options {
     /// A chainable version of [set_server_address](Self::set_server_address).
     pub fn with_server_address(mut self, addr: SocketAddr) -> Self {
         self.server_addr = addr;
+        self
+    }
+
+    /// Set whether traces originating from `tracing-modality` should be included with other
+    /// tracing logs. This is typically only required when debugging issues with tracing-modality
+    /// itself
+    pub fn set_self_tracing(&mut self, self_tracing: bool) {
+        self.self_tracing = self_tracing;
+    }
+    /// A chainable version of [set_self_tracing](Self::set_self_tracing).
+    pub fn with_self_tracing(mut self, self_tracing: bool) -> Self {
+        self.self_tracing = self_tracing;
         self
     }
 }

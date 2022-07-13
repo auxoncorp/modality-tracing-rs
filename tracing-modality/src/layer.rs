@@ -69,8 +69,9 @@ impl ModalityLayer {
         let run_id = Uuid::new_v4();
         opts.add_metadata("run_id", run_id.to_string());
 
+        let self_trace = opts.self_tracing;
         let ingest = ModalityIngest::connect(opts).context("connect to modality")?;
-        let ingest_handle = ingest.spawn_thread();
+        let ingest_handle = ingest.spawn_thread(self_trace);
         let sender = ingest_handle.ingest_sender.clone();
 
         Ok(ModalityLayer {

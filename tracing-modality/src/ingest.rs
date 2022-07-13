@@ -176,11 +176,19 @@ impl ModalityIngest {
         })
     }
 
-    pub(crate) fn spawn_thread(mut self) -> ModalityIngestHandle {
+    pub(crate) fn spawn_thread(mut self, self_trace: bool) -> ModalityIngestHandle {
         let (sender, recv) = mpsc::unbounded_channel();
         let (finish_sender, finish_receiver) = oneshot::channel();
 
         let join_handle = thread::spawn(move || {
+            let mut opt_guard = None;
+
+            // If we AREN'T tracing ourselves, null-route all traces coming from this thread.
+            if !self_trace {
+                let trace_guard = tracing::dispatcher::set_default(&tracing::Dispatch::none());
+                opt_guard = Some(trace_guard);
+            }
+
             let rt = self.rt.take().unwrap_or_else(|| {
                 tokio::runtime::Builder::new_current_thread()
                     .build()
@@ -188,6 +196,8 @@ impl ModalityIngest {
             });
 
             let _ = rt.block_on(rt.spawn(self.handler_task(recv, finish_receiver)));
+
+            drop(opt_guard);
         });
 
         ModalityIngestHandle {

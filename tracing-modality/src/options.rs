@@ -18,7 +18,7 @@ impl Options {
             auth,
             metadata: Vec::new(),
             server_addr,
-            self_tracing: false
+            self_tracing: false,
         }
     }
 

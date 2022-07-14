@@ -10,20 +10,28 @@ The quickest (and as of this version, only) way to get started is to let
 [`TracingModality`] register itself as the global default tracer, done most
 simply using [`TracingModality::init()`]
 
-```rust
+```rust,no_run
 use tracing::debug;
 use tracing_modality::TracingModality;
 use tracing::info;
 
 fn main() {
-    TracingModality::init().expect("init");
+    // first thing in main
+    let mut modality = TracingModality::init().expect("init");
 
     info!("my application has started");
+
+    // last thing in main
+    modality.finish()
 }
 ```
 
 Some basic configuration options are also available to be set at init with
 [`TracingModality::init_with_options`].
+
+As this example shows, you must [`TracingModality::finish`] at the end of your
+main thread to ensure the ingest thread handing all trace events has a chance to
+finish flushing all queued events before your program exits.
 
 ## Usage
 

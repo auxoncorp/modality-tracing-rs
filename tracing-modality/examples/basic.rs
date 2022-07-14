@@ -2,16 +2,20 @@ use tracing::{debug, error, event, info, span, trace, warn, Level};
 use tracing_modality::{Options, TracingModality};
 
 fn main() {
-    TracingModality::init_with_options(
+    let modality = TracingModality::init_with_options(
         Options::new()
             .with_name("basic example")
             .with_metadata("build_id", 0i64),
     )
     .expect("init tracing");
 
-    let span = span!(Level::TRACE, "outer_span");
-    let _span = span.enter();
-    do_thing::doit();
+    {
+        let span = span!(Level::TRACE, "outer_span");
+        let _span = span.enter();
+        do_thing::doit();
+    }
+
+    modality.finish();
 }
 
 pub mod do_thing {

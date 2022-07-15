@@ -100,6 +100,7 @@ pub(crate) enum Message {
     },
 }
 
+/// A handle to control the spawned ingest thread.
 pub struct ModalityIngestHandle {
     pub(crate) ingest_sender: UnboundedSender<WrappedMessage>,
     pub(crate) thread: Option<JoinHandle<()>>,
@@ -114,9 +115,10 @@ impl ModalityIngestHandle {
     ///
     /// # Panics
     ///
-    /// This function uses [`std::thread::join`] which may panic on some platforms if a thread
-    /// attempts to join itself or otherwise may create a deadlock with joining threads. This case
-    /// should be incredibly unlikely, if not impossible, but can not be statically guarenteed.
+    /// This function uses [`std::thread::JoinHandle::join`] which may panic on some platforms if a
+    /// thread attempts to join itself or otherwise may create a deadlock with joining threads.
+    /// This case should be incredibly unlikely, if not impossible, but can not be statically
+    /// guarenteed.
     pub fn finish(mut self) {
         if let Some(finish) = self.finish_sender.take() {
             let _ = finish.send(());

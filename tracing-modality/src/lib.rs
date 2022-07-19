@@ -7,12 +7,12 @@ mod ingest;
 mod layer;
 pub mod options;
 
-pub use ingest::TimelineId;
+pub use ingest::{ModalityIngestHandle, TimelineId};
 pub use layer::ModalityLayer;
 pub use options::Options;
 
 use anyhow::Context as _;
-use ingest::{ConnectError, ModalityIngestHandle};
+use ingest::ConnectError;
 use std::fmt::Debug;
 use thiserror::Error;
 use tracing_core::Dispatch;

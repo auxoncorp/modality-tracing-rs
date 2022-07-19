@@ -6,9 +6,9 @@ written in [Rust] to [Auxon Modality](https://auxon.io).
 [tracing.rs]: https://tracing.rs
 [Rust]: https://www.rust-lang.org/
 
-The quickest (and as of this version, only) way to get started is to let
-[`TracingModality`] register itself as the global default tracer, done most
-simply using [`TracingModality::init()`]
+The quickest way to get started is to let [`TracingModality`] register itself
+as the global default tracer, done most simply using
+[`TracingModality::init()`]:
 
 ```rust,no_run
 use tracing::debug;
@@ -52,13 +52,28 @@ for the full API.
 
 [tracing docs]: https://docs.rs/tracing/latest/tracing/
 
-## Metadata and Fields
+## Mappings to Modality Concepts
 
-Each event or span creation has the fields and message directly provided as
-well as some metadata about where it was called from. This data is mapped to
-Modality trace data as follows:
+While `tracing` and modality both deal with tracing data, there's some
+difference in the exact data model each uses. This section describes how
+`tracing`'s concepts are mapped into Modality's concepts.
 
-### Metadata
+### Modality Timelines
+
+In Modality, a timeline is a linear sequence of events. This library represents
+each OS thread as a seperate timeline.
+
+To record interactions between threads the timeline ID of the remote thread
+must be known. Each thread can access its own timeline ID with the
+[`timeline_id()`] function and should send that ID along with the interaction
+for the remote thread to record the interaction on its own timeline.
+
+### `tracing` Metadata
+
+`tracing` implicitly generates some metadata for every event and span and
+`tracing-modality` will add some more based on its view of each event or span.
+
+This is how each piece of metadata is mapped into modality:
 
 * `message` or `name` -> `event.name`
 * `level` -> `event.severity`
@@ -67,9 +82,13 @@ Modality trace data as follows:
 * `line` -> `event.source.line`
 * the kind of event -> `event.internal.rs.kind` ["span:defined", "span:enter",
   "span:exit" ]
-* `id` -> `event.internal.rs.span_id`
+* `id` -> `event.internal.rs.span_id` (spans only)
 
-### Fields
+### `tracing` Fields
+
+Fields are the structured data you define when using an event or span macro.
+They consist of a key that takes the form of a dot sperated string and a value
+of one of `tracing`'s supported types.
 
 All fields are mapped directly as is to `event.*`, excect fields prefixed with
 `modality.` which are mapped to the datasource specific namespace

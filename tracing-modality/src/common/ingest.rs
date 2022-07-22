@@ -103,12 +103,16 @@ pub(crate) enum Message {
     },
 }
 
+pub trait ModalityIngestHandle {}
+
 /// A handle to control the spawned ingest thread.
 pub struct ModalityIngestThreadHandle {
     pub(crate) ingest_sender: UnboundedSender<WrappedMessage>,
     pub(crate) finish_sender: Option<oneshot::Sender<()>>,
     pub(crate) thread: Option<JoinHandle<()>>,
 }
+
+impl ModalityIngestHandle for ModalityIngestThreadHandle {}
 
 impl ModalityIngestThreadHandle {
     /// Stop accepting new trace events, flush all existing events, and stop ingest thread.
@@ -139,6 +143,8 @@ pub struct ModalityIngestTaskHandle {
     pub(crate) finish_sender: Option<oneshot::Sender<()>>,
     pub(crate) task: Option<task::JoinHandle<()>>,
 }
+
+impl ModalityIngestHandle for ModalityIngestTaskHandle {}
 
 impl ModalityIngestTaskHandle {
     /// Stop accepting new trace events, flush all existing events, and stop ingest thread.

@@ -3,91 +3,15 @@
 // (almost) always be called from
 #![allow(clippy::needless_doctest_main)]
 
-mod ingest;
-mod layer;
-pub mod options;
+#[cfg(feature = "async")]
+mod r#async;
+#[cfg(feature = "blocking")]
+pub mod blocking;
+mod common;
 
-pub use ingest::{ModalityIngestThreadHandle, TimelineId};
-pub use layer::ModalityLayer;
-pub use options::Options;
+pub use common::ingest::{ModalityIngestTaskHandle, ModalityIngestThreadHandle, TimelineId};
+pub use common::options::Options;
+pub use common::*;
 
-use anyhow::Context as _;
-use ingest::ConnectError;
-use std::fmt::Debug;
-use thiserror::Error;
-use tracing_core::Dispatch;
-
-#[derive(Debug, Error)]
-pub enum InitError {
-    /// No auth was provided, set with [`Options::set_auth`]/[`Options::with_auth`] or set the
-    /// `MODALITY_AUTH_TOKEN` environment variable.
-    #[error("Authentication required, set init option or env var MODALITY_AUTH_TOKEN")]
-    AuthRequired,
-
-    /// Auth was provided, but was not accepted by modality.
-    #[error(transparent)]
-    AuthFailed(ConnectError),
-
-    /// Errors that it is assumed there is no way to handle without human intervention, meant for
-    /// consumers to just print and carry on or panic.
-    #[error(transparent)]
-    UnexpectedFailure(#[from] anyhow::Error),
-}
-
-/// A global tracer instance for [tracing.rs](https://tracing.rs/) that sends traces via a network
-/// socket to [Modality](https://auxon.io/).
-pub struct TracingModality {
-    ingest_handle: ModalityIngestThreadHandle,
-}
-
-impl TracingModality {
-    /// Initialize with default options and set as the global default tracer.
-    pub fn init() -> Result<Self, InitError> {
-        Self::init_with_options(Default::default())
-    }
-
-    /// Initialize with the provided options and set as the global default tracer.
-    pub fn init_with_options(opts: Options) -> Result<Self, InitError> {
-        let mut layer =
-            ModalityLayer::init_with_options(opts).context("initialize ModalityLayer")?;
-        let ingest_handle = layer
-            .take_handle()
-            .expect("take handle on brand new layer somehow failed");
-
-        let disp = Dispatch::new(layer.into_subscriber());
-        tracing::dispatcher::set_global_default(disp).unwrap();
-
-        Ok(Self { ingest_handle })
-    }
-
-    /// Initialize with default options and set as the global default tracer.
-    pub async fn async_init() -> Result<Self, InitError> {
-        Self::async_init_with_options(Default::default()).await
-    }
-
-    /// Initialize with the provided options and set as the global default tracer.
-    pub async fn async_init_with_options(opts: Options) -> Result<Self, InitError> {
-        let mut layer = ModalityLayer::async_init_with_options(opts)
-            .await
-            .context("initialize ModalityLayer")?;
-        let ingest_handle = layer
-            .take_handle()
-            .expect("take handle on brand new layer somehow failed");
-
-        let disp = Dispatch::new(layer.into_subscriber());
-        tracing::dispatcher::set_global_default(disp).unwrap();
-
-        Ok(Self { ingest_handle })
-    }
-
-    /// Stop accepting new trace events, flush all existing events, and stop ingest thread.
-    pub fn finish(self) {
-        self.ingest_handle.finish();
-    }
-}
-
-/// Retrieve the current local timeline ID. Useful for for sending alongside data and a custom nonce
-/// for recording timeline interactions on remote timelines.
-pub fn timeline_id() -> TimelineId {
-    ingest::current_timeline()
-}
+#[cfg(feature = "async")]
+pub use r#async::{ModalityLayer, TracingModality};

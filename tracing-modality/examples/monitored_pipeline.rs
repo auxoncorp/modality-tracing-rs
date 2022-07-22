@@ -7,7 +7,7 @@ use std::sync::{
 use std::time::{Duration, Instant};
 use std::{fmt, thread};
 use tracing_core::Dispatch;
-use tracing_modality::{timeline_id, ModalityLayer, TimelineId};
+use tracing_modality::blocking::{timeline_id, ModalityLayer, TimelineId};
 use tracing_subscriber::{fmt::Layer, layer::SubscriberExt, Registry};
 
 fn main() {

@@ -9,7 +9,12 @@ mod r#async;
 pub mod blocking;
 mod common;
 
-pub use common::ingest::{ModalityIngestTaskHandle, ModalityIngestThreadHandle, TimelineId};
+#[cfg(feature = "async")]
+pub use common::ingest::ModalityIngestTaskHandle;
+#[cfg(feature = "blocking")]
+pub use common::ingest::ModalityIngestThreadHandle;
+
+pub use common::ingest::TimelineId;
 pub use common::options::Options;
 pub use common::*;
 

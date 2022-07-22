@@ -12,7 +12,7 @@ as the global default tracer, done most simply using
 
 ```rust,no_run
 use tracing::debug;
-use tracing_modality::TracingModality;
+use tracing_modality::blocking::TracingModality;
 use tracing::info;
 
 fn main() {

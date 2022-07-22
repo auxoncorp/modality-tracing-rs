@@ -6,9 +6,15 @@ description = "This crate provides a `tracing` `Layer` (and `Subscriber`) for em
 repository = "https://github.com/auxoncorp/modality-tracing-rs"
 license = "Apache-2.0"
 
+[features]
+default = ["async", "blocking"]
+async = []
+blocking = []
+
 [dependencies]
 anyhow = "1"
 dirs = "4"
+duplicate = "0.4.1"
 hex = "0.4"
 modality-ingest-client = "0.1"
 once_cell = "1"

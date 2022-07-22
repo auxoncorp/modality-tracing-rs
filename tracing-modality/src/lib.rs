@@ -6,13 +6,12 @@
 #[cfg(feature = "async")]
 mod r#async;
 #[cfg(feature = "blocking")]
+/// Blocking variants of this crates APIs.
 pub mod blocking;
 mod common;
 
 #[cfg(feature = "async")]
 pub use common::ingest::ModalityIngestTaskHandle;
-#[cfg(feature = "blocking")]
-pub use common::ingest::ModalityIngestThreadHandle;
 
 pub use common::ingest::TimelineId;
 pub use common::options::Options;

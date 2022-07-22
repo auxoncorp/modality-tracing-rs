@@ -13,6 +13,10 @@ use tracing_core::Subscriber;
 use tracing_subscriber::{layer::SubscriberExt, Registry};
 use uuid::Uuid;
 
+/// A `tracing` `Layer` that can be used to record trace events and stream them to modality in real
+/// time.
+///
+/// Can be transformed into a `Subscriber` with [`ModalityLayer::into_subscriber()`].
 pub struct ModalityLayer {
     sender: UnboundedSender<WrappedMessage>,
 }

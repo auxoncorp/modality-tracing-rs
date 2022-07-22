@@ -1,6 +1,7 @@
-pub mod layer;
+mod layer;
 
-pub use crate::{timeline_id, InitError, ModalityIngestThreadHandle, Options, TimelineId};
+pub use crate::ingest::ModalityIngestThreadHandle;
+pub use crate::{timeline_id, InitError, Options, TimelineId};
 pub use layer::ModalityLayer;
 
 use anyhow::Context as _;
@@ -13,7 +14,6 @@ use tracing::Dispatch;
 /// from within a tokio runtime. See [`crate::TracingModality`] for a version that can be
 /// initialized inside a tokio runtime. Both versions support tracing from within and outside of a
 /// tokio runtime.
-
 pub struct TracingModality {
     ingest_handle: ModalityIngestThreadHandle,
 }

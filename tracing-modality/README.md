@@ -1,7 +1,7 @@
 # tracing-modality
 
-`tracing-modality` provides a [tracing.rs] `Subscriber` for tracing systems
-written in [Rust] to [Auxon Modality](https://auxon.io).
+`tracing-modality` provides a [tracing.rs] `Layer` for tracing systems written
+in [Rust] to [Auxon Modality](https://auxon.io).
 
 [tracing.rs]: https://tracing.rs
 [Rust]: https://www.rust-lang.org/
@@ -11,18 +11,18 @@ as the global default tracer, done most simply using
 [`TracingModality::init()`]:
 
 ```rust,no_run
-use tracing::debug;
-use tracing_modality::blocking::TracingModality;
+use tracing_modality::TracingModality;
 use tracing::info;
 
-fn main() {
+#[tokio::main]
+async fn main() {
     // first thing in main
-    let mut modality = TracingModality::init().expect("init");
+    let mut modality = TracingModality::init().await.expect("init");
 
     info!("my application has started");
 
     // last thing in main
-    modality.finish()
+    modality.finish().await
 }
 ```
 

@@ -28,12 +28,9 @@ impl TracingModality {
 
     /// Initialize with the provided options and set as the global default tracer.
     pub async fn init_with_options(opts: Options) -> Result<Self, InitError> {
-        let mut layer = ModalityLayer::init_with_options(opts)
+        let (layer, ingest_handle) = ModalityLayer::init_with_options(opts)
             .await
             .context("initialize ModalityLayer")?;
-        let ingest_handle = layer
-            .take_handle()
-            .expect("take handle on brand new layer somehow failed");
 
         let disp = Dispatch::new(layer.into_subscriber());
         tracing::dispatcher::set_global_default(disp).unwrap();

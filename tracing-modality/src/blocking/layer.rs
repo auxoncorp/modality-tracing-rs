@@ -15,7 +15,6 @@ use uuid::Uuid;
 
 pub struct ModalityLayer {
     sender: UnboundedSender<WrappedMessage>,
-    ingest_handle: Option<ModalityIngestThreadHandle>,
 }
 
 impl ModalityLayer {
@@ -29,12 +28,14 @@ impl ModalityLayer {
     }
 
     /// Initialize a new `ModalityLayer`, with default options.
-    pub fn init() -> Result<Self, InitError> {
+    pub fn init() -> Result<(Self, ModalityIngestThreadHandle), InitError> {
         Self::init_with_options(Default::default())
     }
 
     /// Initialize a new `ModalityLayer`, with specified options.
-    pub fn init_with_options(mut opts: Options) -> Result<Self, InitError> {
+    pub fn init_with_options(
+        mut opts: Options,
+    ) -> Result<(Self, ModalityIngestThreadHandle), InitError> {
         let run_id = Uuid::new_v4();
         opts.add_metadata("run_id", run_id.to_string());
 
@@ -42,19 +43,7 @@ impl ModalityLayer {
         let ingest_handle = ingest.spawn_thread();
         let sender = ingest_handle.ingest_sender.clone();
 
-        Ok(ModalityLayer {
-            ingest_handle: Some(ingest_handle),
-            sender,
-        })
-    }
-
-    /// TODO: Get rid of this.
-    /// Take the handle to this layer's ingest instance. This can only be taken once.
-    ///
-    /// This handle is primarily for calling [`ModalityIngestThreadHandle::finish()`] at the end of your
-    /// main thread.
-    pub fn take_handle(&mut self) -> Option<ModalityIngestThreadHandle> {
-        self.ingest_handle.take()
+        Ok((ModalityLayer { sender }, ingest_handle))
     }
 
     /// Convert this `Layer` into a `Subscriber`by by layering it on a new instace of `tracing`'s

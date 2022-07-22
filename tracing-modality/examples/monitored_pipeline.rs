@@ -13,11 +13,8 @@ use tracing_subscriber::{fmt::Layer, layer::SubscriberExt, Registry};
 fn main() {
     // setup custom tracer including ModalityLayer
     let modality = {
-        let mut modality_layer = ModalityLayer::init().expect("initialize ModalityLayer");
-
-        let modality_ingest_handle = modality_layer
-            .take_handle()
-            .expect("handle exists on new layer");
+        let (modality_layer, modality_ingest_handle) =
+            ModalityLayer::init().expect("initialize ModalityLayer");
 
         let subscriber = Registry::default()
             .with(modality_layer)

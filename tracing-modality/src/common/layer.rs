@@ -1,11 +1,9 @@
 use crate::ingest::TimelineId;
-use crate::options::Options;
-use crate::InitError;
 
 use crate::ingest;
-use crate::ingest::{ModalityIngest, ModalityIngestHandle, WrappedMessage};
+use crate::ingest::WrappedMessage;
 
-use anyhow::Context as _;
+use duplicate::duplicate_item;
 use once_cell::sync::Lazy;
 use std::{
     cell::Cell,
@@ -13,10 +11,11 @@ use std::{
     fmt::Debug,
     num::NonZeroU64,
     sync::atomic::{AtomicBool, AtomicU64, Ordering},
-    thread, thread_local,
+    thread,
+    thread::LocalKey,
     time::Instant,
 };
-use tokio::sync::mpsc::UnboundedSender;
+use tokio::sync::mpsc;
 use tracing_core::{
     field::Visit,
     span::{Attributes, Id, Record},
@@ -24,10 +23,8 @@ use tracing_core::{
 };
 use tracing_subscriber::{
     layer::{Context, Layer},
-    prelude::*,
-    registry::{LookupSpan, Registry},
+    registry::LookupSpan,
 };
-use uuid::Uuid;
 
 static START: Lazy<Instant> = Lazy::new(Instant::now);
 static NEXT_SPAN_ID: AtomicU64 = AtomicU64::new(1);
@@ -35,74 +32,37 @@ static WARN_LATCH: AtomicBool = AtomicBool::new(false);
 
 /// An ID for spans that we can use directly.
 #[derive(Copy, Clone, Debug)]
-struct LocalSpanId(NonZeroU64);
+pub(crate) struct LocalSpanId(NonZeroU64);
 
 /// A newtype to store the span's name in itself for later use.
 #[derive(Clone, Debug)]
-struct SpanName(String);
+pub(crate) struct SpanName(String);
 
-pub struct ModalityLayer {
-    sender: UnboundedSender<WrappedMessage>,
-    ingest_handle: Option<ModalityIngestHandle>,
+pub(crate) struct LocalMetadata {
+    pub(crate) thread_timeline: TimelineId,
 }
 
-struct LocalMetadata {
-    thread_timeline: TimelineId,
+#[cfg(feature = "async")]
+impl LayerCommon for crate::r#async::ModalityLayer {}
+#[cfg(feature = "blocking")]
+impl LayerCommon for crate::blocking::ModalityLayer {}
+
+pub(crate) trait LayerHandler {
+    fn send(&self, msg: WrappedMessage) -> Result<(), mpsc::error::SendError<WrappedMessage>>;
+    fn local_metadata(&self) -> &'static LocalKey<Lazy<LocalMetadata>>;
+    fn thread_timeline_initialized(&self) -> &'static LocalKey<Cell<bool>>;
 }
 
-impl ModalityLayer {
-    thread_local! {
-        static LOCAL_METADATA: Lazy<LocalMetadata> = Lazy::new(|| {
-            LocalMetadata {
-                thread_timeline: ingest::current_timeline(),
-            }
-        });
-        static THREAD_TIMELINE_INITIALIZED: Cell<bool> = Cell::new(false);
-    }
-
-    /// Initialize a new `ModalityLayer`, with default options.
-    pub fn init() -> Result<Self, InitError> {
-        Self::init_with_options(Default::default())
-    }
-
-    /// Initialize a new `ModalityLayer`, with specified options.
-    pub fn init_with_options(mut opts: Options) -> Result<Self, InitError> {
-        let run_id = Uuid::new_v4();
-        opts.add_metadata("run_id", run_id.to_string());
-
-        let ingest = ModalityIngest::connect(opts).context("connect to modality")?;
-        let ingest_handle = ingest.spawn_thread();
-        let sender = ingest_handle.ingest_sender.clone();
-
-        Ok(ModalityLayer {
-            ingest_handle: Some(ingest_handle),
-            sender,
-        })
-    }
-
-    /// Convert this `Layer` into a `Subscriber`by by layering it on a new instace of `tracing`'s
-    /// `Registry`.
-    pub fn into_subscriber(self) -> impl Subscriber {
-        Registry::default().with(self)
-    }
-
-    /// Take the handle to this layer's ingest instance. This can only be taken once.
-    ///
-    /// This handle is primarily for calling [`ModalityIngestHandle::finish()`] at the end of your
-    /// main thread.
-    pub fn take_handle(&mut self) -> Option<ModalityIngestHandle> {
-        self.ingest_handle.take()
-    }
-
+trait LayerCommon: LayerHandler {
     fn handle_message(&self, message: ingest::Message) {
         self.ensure_timeline_has_been_initialized();
         let wrapped_message = ingest::WrappedMessage {
             message,
             tick: START.elapsed(),
-            timeline: Self::LOCAL_METADATA.with(|m| m.thread_timeline),
+            timeline: self.local_metadata().with(|m| m.thread_timeline),
         };
 
-        if let Err(_e) = self.sender.send(wrapped_message) {
+        if let Err(_e) = self.send(wrapped_message) {
             // gets a single false across all application threads, atomically replacing with true
             // only show warning on false, so we only warn once
             //
@@ -132,8 +92,8 @@ impl ModalityLayer {
     }
 
     fn ensure_timeline_has_been_initialized(&self) {
-        if !Self::THREAD_TIMELINE_INITIALIZED.with(|i| i.get()) {
-            Self::THREAD_TIMELINE_INITIALIZED.with(|i| i.set(true));
+        if !self.thread_timeline_initialized().with(|i| i.get()) {
+            self.thread_timeline_initialized().with(|i| i.set(true));
 
             let cur = thread::current();
             let name = cur
@@ -145,11 +105,11 @@ impl ModalityLayer {
             let wrapped_message = ingest::WrappedMessage {
                 message,
                 tick: START.elapsed(),
-                timeline: Self::LOCAL_METADATA.with(|m| m.thread_timeline),
+                timeline: self.local_metadata().with(|m| m.thread_timeline),
             };
 
             // ignore failures, exceedingly unlikely here, will get caught in `handle_message`
-            let _ = self.sender.send(wrapped_message);
+            let _ = self.send(wrapped_message);
         }
     }
 }
@@ -166,7 +126,18 @@ where
         .expect("get `LocalSpanId`, should always exist on spans")
 }
 
-impl<S> Layer<S> for ModalityLayer
+#[cfg(feature = "blocking")]
+use crate::blocking::ModalityLayer as BlockingModalityLayer;
+#[cfg(feature = "async")]
+use crate::r#async::ModalityLayer as AsyncModalityLayer;
+
+#[cfg_attr(all(feature = "async", feature = "blocking"),
+  duplicate_item(layer; [ AsyncModalityLayer ]; [ BlockingModalityLayer ];))]
+#[cfg_attr(all(feature = "async", not(feature = "blocking")),
+  duplicate_item(layer; [ AsyncModalityLayer ];))]
+#[cfg_attr(all(not(feature = "async"), feature = "blocking"),
+  duplicate_item(layer; [ BlockingModalityLayer ];))]
+impl<S> Layer<S> for layer
 where
     S: Subscriber + for<'a> LookupSpan<'a>,
 {

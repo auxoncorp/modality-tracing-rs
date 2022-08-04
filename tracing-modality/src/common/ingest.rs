@@ -1,7 +1,9 @@
 pub use modality_ingest_client::types::TimelineId;
 
-use crate::layer::{RecordMap, TracingValue};
-use crate::Options;
+use crate::{
+    layer::{RecordMap, TracingValue},
+    Options,
+};
 use anyhow::Context;
 use modality_ingest_client::{
     client::{BoundTimelineState, IngestClient},
@@ -9,20 +11,21 @@ use modality_ingest_client::{
     IngestError as SdkIngestError,
 };
 use once_cell::sync::Lazy;
-use std::{
-    collections::HashMap,
-    num::NonZeroU64,
-    thread::{self, JoinHandle},
-    time::Duration,
-};
+use std::{collections::HashMap, num::NonZeroU64, time::Duration};
 use thiserror::Error;
 use tokio::{
-    runtime::Runtime,
     select,
     sync::mpsc::{self, UnboundedReceiver, UnboundedSender},
     sync::oneshot,
 };
 use tracing_core::Metadata;
+
+#[cfg(feature = "blocking")]
+use std::thread::{self, JoinHandle};
+#[cfg(feature = "blocking")]
+use tokio::runtime::Runtime;
+#[cfg(feature = "async")]
+use tokio::task;
 
 thread_local! {
     static THREAD_TIMELINE_ID: Lazy<TimelineId> = Lazy::new(TimelineId::allocate);
@@ -100,14 +103,21 @@ pub(crate) enum Message {
     },
 }
 
+pub trait ModalityIngestHandle {}
+
+#[cfg(feature = "blocking")]
 /// A handle to control the spawned ingest thread.
-pub struct ModalityIngestHandle {
+pub struct ModalityIngestThreadHandle {
     pub(crate) ingest_sender: UnboundedSender<WrappedMessage>,
-    pub(crate) thread: Option<JoinHandle<()>>,
     pub(crate) finish_sender: Option<oneshot::Sender<()>>,
+    pub(crate) thread: Option<JoinHandle<()>>,
 }
 
-impl ModalityIngestHandle {
+#[cfg(feature = "blocking")]
+impl ModalityIngestHandle for ModalityIngestThreadHandle {}
+
+#[cfg(feature = "blocking")]
+impl ModalityIngestThreadHandle {
     /// Stop accepting new trace events, flush all existing events, and stop ingest thread.
     ///
     /// This function must be called at the end of your main thread to give the ingest thread a
@@ -130,16 +140,47 @@ impl ModalityIngestHandle {
     }
 }
 
+#[cfg(feature = "async")]
+/// A handle to control the spawned ingest task.
+pub struct ModalityIngestTaskHandle {
+    pub(crate) ingest_sender: UnboundedSender<WrappedMessage>,
+    pub(crate) finish_sender: Option<oneshot::Sender<()>>,
+    pub(crate) task: Option<task::JoinHandle<()>>,
+}
+
+#[cfg(feature = "async")]
+impl ModalityIngestHandle for ModalityIngestTaskHandle {}
+
+#[cfg(feature = "async")]
+impl ModalityIngestTaskHandle {
+    /// Stop accepting new trace events, flush all existing events, and stop ingest thread.
+    ///
+    /// This function must be called at the end of your main thread to give the ingest thread a
+    /// chance to flush all queued trace events out to modality.
+    pub async fn finish(mut self) {
+        if let Some(finish) = self.finish_sender.take() {
+            let _ = finish.send(());
+        }
+
+        if let Some(task) = self.task.take() {
+            let _ = task.await;
+        }
+    }
+}
+
 pub(crate) struct ModalityIngest {
     client: IngestClient<BoundTimelineState>,
     global_metadata: Vec<(String, AttrVal)>,
     event_keys: HashMap<String, AttrKey>,
     timeline_keys: HashMap<String, AttrKey>,
     span_names: HashMap<NonZeroU64, String>,
+
+    #[cfg(feature = "blocking")]
     rt: Option<Runtime>,
 }
 
 impl ModalityIngest {
+    #[cfg(feature = "blocking")]
     pub(crate) fn connect(opts: Options) -> Result<Self, ConnectError> {
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_io()
@@ -180,11 +221,13 @@ impl ModalityIngest {
             event_keys: HashMap::new(),
             timeline_keys: HashMap::new(),
             span_names: HashMap::new(),
+            #[cfg(feature = "blocking")]
             rt: None,
         })
     }
 
-    pub(crate) fn spawn_thread(mut self) -> ModalityIngestHandle {
+    #[cfg(feature = "blocking")]
+    pub(crate) fn spawn_thread(mut self) -> ModalityIngestThreadHandle {
         let (sender, recv) = mpsc::unbounded_channel();
         let (finish_sender, finish_receiver) = oneshot::channel();
 
@@ -201,10 +244,24 @@ impl ModalityIngest {
             rt.block_on(self.handler_task(recv, finish_receiver))
         });
 
-        ModalityIngestHandle {
+        ModalityIngestThreadHandle {
             ingest_sender: sender,
-            thread: Some(join_handle),
             finish_sender: Some(finish_sender),
+            thread: Some(join_handle),
+        }
+    }
+
+    #[cfg(feature = "async")]
+    pub(crate) async fn spawn_task(self) -> ModalityIngestTaskHandle {
+        let (ingest_sender, recv) = mpsc::unbounded_channel();
+        let (finish_sender, finish_receiver) = oneshot::channel();
+
+        let task = tokio::spawn(self.handler_task(recv, finish_receiver));
+
+        ModalityIngestTaskHandle {
+            ingest_sender,
+            finish_sender: Some(finish_sender),
+            task: Some(task),
         }
     }
 

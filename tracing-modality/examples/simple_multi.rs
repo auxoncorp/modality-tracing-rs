@@ -2,7 +2,7 @@ use rand::{thread_rng, Rng};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::thread::{Builder, JoinHandle};
 use tracing::{info, info_span};
-use tracing_modality::{timeline_id, TimelineId, TracingModality};
+use tracing_modality::blocking::{timeline_id, TimelineId, TracingModality};
 
 const THREADS: usize = 2;
 

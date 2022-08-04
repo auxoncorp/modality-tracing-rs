@@ -1,5 +1,5 @@
 use tracing::{debug, error, event, info, span, trace, warn, Level};
-use tracing_modality::{Options, TracingModality};
+use tracing_modality::blocking::{Options, TracingModality};
 
 fn main() {
     let modality = TracingModality::init_with_options(

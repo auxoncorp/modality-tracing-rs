@@ -1,6 +1,9 @@
 Unreleased
 ==========
 
+Version 0.2.0
+=============
+
 * Changed from connection per thread to a single connection and a message queue
   serviced by a dedicated ingest thread.
 * Tracing from tokio is now supported.

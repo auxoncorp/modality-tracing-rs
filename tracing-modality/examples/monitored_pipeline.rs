@@ -135,6 +135,9 @@ pub struct MessageMetadata {
     timestamp: NanosecondsSinceUnixEpoch,
     /// Which tracing timeline was this from?
     timeline_id: TimelineId,
+    /// A correlation nonce for precisely matching
+    /// the source event related to this message.
+    nonce: Option<i64>,
 }
 
 #[derive(Copy, Clone, PartialEq, Debug)]
@@ -189,7 +192,7 @@ impl Component {
 
 mod producer {
     use super::*;
-    use rand::{thread_rng, Rng};
+    use rand::Rng;
     pub fn run_producer(
         consumer_tx: SyncSender<MeasurementMessage>,
         monitor_tx: Sender<HeartbeatMessage>,
@@ -198,6 +201,7 @@ mod producer {
         tracing::info!("Starting up");
 
         let timeline_id = timeline_id();
+        let mut rng = rand::thread_rng();
 
         // This is the imaginary physically-derived value that the producer is tracking and sampling
         let mut measurement: i8 = 0;
@@ -206,8 +210,8 @@ mod producer {
                 tracing::info!("Shutting down");
                 return;
             }
-            let sample = update_and_sample_measurement(&mut measurement);
-            send_measurement(sample, &consumer_tx, timeline_id);
+            let sample = update_and_sample_measurement(&mut rng, &mut measurement);
+            send_measurement(sample, &consumer_tx, timeline_id, rng.gen());
 
             if i % 5 == 0 {
                 send_heartbeat(&monitor_tx, Component::Producer, timeline_id);
@@ -216,8 +220,8 @@ mod producer {
         }
     }
 
-    fn update_and_sample_measurement(measurement: &mut i8) -> i8 {
-        let update: i8 = thread_rng().gen_range(-1..=1);
+    fn update_and_sample_measurement<R: Rng>(rng: &mut R, measurement: &mut i8) -> i8 {
+        let update: i8 = rng.gen_range(-1..=1);
         *measurement = measurement.wrapping_add(update);
         let sample = *measurement;
         tracing::info!(sample, "Producer sampled raw measurement");
@@ -228,6 +232,7 @@ mod producer {
         sample: i8,
         consumer_tx: &SyncSender<MeasurementMessage>,
         timeline_id: TimelineId,
+        nonce: i64,
     ) {
         // The measurement sample value must be in the range [-50, 50]
         let sample = clamp(sample, -50, 50);
@@ -245,6 +250,7 @@ mod producer {
 
         tracing::info!(
             sample,
+            nonce,
             destination = Component::Consumer.name(),
             "Producer sending measurement message"
         );
@@ -253,6 +259,7 @@ mod producer {
             meta: MessageMetadata {
                 timestamp,
                 timeline_id,
+                nonce: Some(nonce),
             },
         }) {
             tracing::warn!(
@@ -298,11 +305,20 @@ mod consumer {
             }
             match timed_recv_result {
                 Ok(msg) => {
-                    tracing::info!(
+                    if let Some(nonce) = msg.meta.nonce {
+                        tracing::info!(
+                        sample = msg.sample,
+                        interaction.remote_timeline_id = %msg.meta.timeline_id.get_raw(),
+                        interaction.remote_timestamp = msg.meta.timestamp.0,
+                        interaction.remote_nonce=nonce,
+                        "Received measurement message");
+                    } else {
+                        tracing::info!(
                         sample = msg.sample,
                         interaction.remote_timeline_id = %msg.meta.timeline_id.get_raw(),
                         interaction.remote_timestamp = msg.meta.timestamp.0,
                         "Received measurement message");
+                    }
 
                     expensive_task(msg.sample, &is_shutdown_requested);
 
@@ -419,13 +435,14 @@ fn send_heartbeat(
     };
     tracing::info!(
         destination = Component::Monitor.name(),
-        "Sending heartbeat measurement message"
+        "Sending heartbeat message"
     );
     if let Err(_e) = monitor_tx.send(HeartbeatMessage {
         source,
         meta: MessageMetadata {
             timestamp,
             timeline_id,
+            nonce: None,
         },
     }) {
         tracing::warn!("Failed to send heartbeat message");

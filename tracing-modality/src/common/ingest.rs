@@ -286,6 +286,7 @@ impl ModalityIngest {
         while let Some(message) = recv.recv().await {
             let _ = self.handle_packet(message).await;
         }
+        let _ = self.client.flush().await;
     }
 
     async fn handle_packet(&mut self, message: WrappedMessage) -> Result<(), IngestError> {

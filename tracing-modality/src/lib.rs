@@ -2,6 +2,7 @@
 // required for above example, showing main isn't needless, it shows the context of where this will
 // (almost) always be called from
 #![allow(clippy::needless_doctest_main)]
+#![warn(clippy::all)]
 
 #[cfg(feature = "async")]
 mod r#async;

@@ -1,13 +1,10 @@
 use crate::common::options::Options;
-use crate::InitError;
+use crate::{InitError, TIMELINE_IDENTIFIER};
 
-use crate::common::layer::{LayerHandler, LocalMetadata};
-use crate::ingest;
+use crate::common::layer::LayerHandler;
 use crate::ingest::{ModalityIngest, ModalityIngestTaskHandle, WrappedMessage};
 
 use anyhow::Context as _;
-use once_cell::sync::Lazy;
-use std::{cell::Cell, thread::LocalKey, thread_local};
 use tokio::sync::mpsc::{self, UnboundedSender};
 use tracing_core::Subscriber;
 use tracing_subscriber::{layer::SubscriberExt, Registry};
@@ -22,15 +19,6 @@ pub struct ModalityLayer {
 }
 
 impl ModalityLayer {
-    thread_local! {
-        static LOCAL_METADATA: Lazy<LocalMetadata> = Lazy::new(|| {
-            LocalMetadata {
-                thread_timeline: ingest::current_timeline(),
-            }
-        });
-        static THREAD_TIMELINE_INITIALIZED: Cell<bool> = Cell::new(false);
-    }
-
     /// Initialize a new `ModalityLayer`, with default options.
     pub async fn init() -> Result<(Self, ModalityIngestTaskHandle), InitError> {
         Self::init_with_options(Default::default()).await
@@ -42,6 +30,10 @@ impl ModalityLayer {
     ) -> Result<(Self, ModalityIngestTaskHandle), InitError> {
         let run_id = Uuid::new_v4();
         opts.add_metadata("run_id", run_id.to_string());
+
+        TIMELINE_IDENTIFIER
+            .set(opts.timeline_identifier)
+            .map_err(|_| InitError::InitializedTwice)?;
 
         let ingest = ModalityIngest::async_connect(opts)
             .await
@@ -62,13 +54,5 @@ impl ModalityLayer {
 impl LayerHandler for ModalityLayer {
     fn send(&self, msg: WrappedMessage) -> Result<(), mpsc::error::SendError<WrappedMessage>> {
         self.sender.send(msg)
-    }
-
-    fn local_metadata(&self) -> &'static LocalKey<Lazy<LocalMetadata>> {
-        &Self::LOCAL_METADATA
-    }
-
-    fn thread_timeline_initialized(&self) -> &'static LocalKey<Cell<bool>> {
-        &Self::THREAD_TIMELINE_INITIALIZED
     }
 }

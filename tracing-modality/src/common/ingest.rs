@@ -2,7 +2,7 @@ pub use modality_ingest_client::types::TimelineId;
 
 use crate::{
     layer::{RecordMap, TracingValue},
-    Options,
+    Options, TimelineInfo,
 };
 use anyhow::Context;
 use modality_ingest_client::{
@@ -28,7 +28,20 @@ use tokio::runtime::Runtime;
 use tokio::task;
 
 thread_local! {
-    static THREAD_TIMELINE_ID: Lazy<TimelineId> = Lazy::new(TimelineId::allocate);
+    static THREAD_TIMELINE_INFO: Lazy<TimelineInfo> = Lazy::new(|| {
+        let cur = thread::current();
+        let name = cur
+            .name()
+            .map(Into::into)
+            .unwrap_or_else(|| format!("thread-{:?}", cur.id()));
+
+        let id = TimelineId::allocate();
+
+        TimelineInfo {
+            name,
+            id,
+        }
+    });
 }
 
 #[derive(Debug, Error)]
@@ -53,8 +66,8 @@ pub enum IngestError {
     UnexpectedFailure(#[from] anyhow::Error),
 }
 
-pub(crate) fn current_timeline() -> TimelineId {
-    THREAD_TIMELINE_ID.with(|id| **id)
+pub(crate) fn thread_timeline() -> TimelineInfo {
+    THREAD_TIMELINE_INFO.with(|id| (*id).clone())
 }
 
 pub(crate) type SpanId = NonZeroU64;
@@ -209,9 +222,9 @@ impl ModalityIngest {
 
         // open a timeline for the current thread because we need to open something to make the
         // types work
-        let timeline_id = current_timeline();
+        let timeline_id = thread_timeline();
         let client = client
-            .open_timeline(timeline_id)
+            .open_timeline(timeline_id.id)
             .await
             .context("open new timeline")?;
 

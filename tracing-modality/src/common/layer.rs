@@ -1,18 +1,18 @@
-use crate::ingest::TimelineId;
+use crate::{ingest::TimelineId, TimelineInfo};
 
-use crate::ingest;
 use crate::ingest::WrappedMessage;
+use crate::{ingest, TIMELINE_IDENTIFIER};
 
 use duplicate::duplicate_item;
 use once_cell::sync::Lazy;
 use std::{
-    cell::Cell,
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     fmt::Debug,
     num::NonZeroU64,
-    sync::atomic::{AtomicBool, AtomicU64, Ordering},
-    thread,
-    thread::LocalKey,
+    sync::{
+        atomic::{AtomicBool, AtomicU64, Ordering},
+        RwLock,
+    },
     time::Instant,
 };
 use tokio::sync::mpsc;
@@ -38,28 +38,47 @@ pub(crate) struct LocalSpanId(NonZeroU64);
 #[derive(Clone, Debug)]
 pub(crate) struct SpanName(String);
 
-pub(crate) struct LocalMetadata {
-    pub(crate) thread_timeline: TimelineId,
-}
-
 #[cfg(feature = "async")]
 impl LayerCommon for crate::r#async::ModalityLayer {}
 #[cfg(feature = "blocking")]
 impl LayerCommon for crate::blocking::ModalityLayer {}
 
+static KNOWN_TIMELINES: Lazy<RwLock<HashSet<TimelineId>>> =
+    Lazy::new(|| RwLock::new(HashSet::new()));
+
 pub(crate) trait LayerHandler {
     fn send(&self, msg: WrappedMessage) -> Result<(), mpsc::error::SendError<WrappedMessage>>;
-    fn local_metadata(&self) -> &'static LocalKey<Lazy<LocalMetadata>>;
-    fn thread_timeline_initialized(&self) -> &'static LocalKey<Cell<bool>>;
 }
 
 trait LayerCommon: LayerHandler {
     fn handle_message(&self, message: ingest::Message) {
-        self.ensure_timeline_has_been_initialized();
+        let info = match TIMELINE_IDENTIFIER.get() {
+            Some(ident) => (*ident)(),
+            None => {
+                // gets a single false across all application threads, atomically replacing with true
+                // only show warning on false, so we only warn once
+                //
+                // ordering doesn't matter, we don't care which thread prints if multiple try
+                let has_warned = WARN_LATCH
+                    .compare_exchange(false, true, Ordering::Relaxed, Ordering::Relaxed)
+                    .is_ok();
+
+                if !has_warned {
+                    eprintln!("warning: no timeline identifier was registered. This is a bug.");
+                }
+
+                return;
+            }
+        };
+
+        let TimelineInfo { name, id } = info;
+
+        self.ensure_timeline_has_been_initialized(&name, &id);
+
         let wrapped_message = ingest::WrappedMessage {
             message,
             tick: START.elapsed(),
-            timeline: self.local_metadata().with(|m| m.thread_timeline),
+            timeline: id,
         };
 
         if let Err(_e) = self.send(wrapped_message) {
@@ -91,25 +110,43 @@ trait LayerCommon: LayerHandler {
         }
     }
 
-    fn ensure_timeline_has_been_initialized(&self) {
-        if !self.thread_timeline_initialized().with(|i| i.get()) {
-            self.thread_timeline_initialized().with(|i| i.set(true));
+    fn ensure_timeline_has_been_initialized(&self, name: &str, timeline: &TimelineId) {
+        // Is this timeline known?
+        //
+        // If the RwLock for known timelines is poisoned, something has gone terribly wrong,
+        // so just assume it is known.
+        //
+        // Additionally, we do the read and write steps separately to support the "fast path"
+        // where the timeline is already known. This means "new" timelines will have to acquire
+        // the RwLock twice: once for reading, and once for writing, but the first trace will
+        // already be relatively expensive as we have to register the timeline anyway.
+        //
+        // TODO: In the future, it might be possible to skip *both* of these steps if the modality
+        // backend could "auto-register" timelines on first reception. This would also help
+        // prevent unbounded growth of the known timelines hashset.
+        let is_known = KNOWN_TIMELINES
+            .read()
+            .map(|rdr| rdr.contains(timeline))
+            .unwrap_or(true);
 
-            let cur = thread::current();
-            let name = cur
-                .name()
-                .map(Into::into)
-                .unwrap_or_else(|| format!("thread-{:?}", cur.id()));
-
-            let message = ingest::Message::NewTimeline { name };
+        // The timeline isn't known, we need to register it.
+        if !is_known {
+            let message = ingest::Message::NewTimeline {
+                name: name.to_string(),
+            };
             let wrapped_message = ingest::WrappedMessage {
                 message,
                 tick: START.elapsed(),
-                timeline: self.local_metadata().with(|m| m.thread_timeline),
+                timeline: *timeline,
             };
 
             // ignore failures, exceedingly unlikely here, will get caught in `handle_message`
             let _ = self.send(wrapped_message);
+
+            // Again, if the known timelines
+            if let Ok(mut wtr) = KNOWN_TIMELINES.write() {
+                wtr.insert(*timeline);
+            }
         }
     }
 }

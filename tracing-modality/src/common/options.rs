@@ -1,3 +1,4 @@
+use crate::{common::ingest::thread_timeline, TimelineInfo};
 use modality_ingest_client::types::AttrVal;
 use std::net::SocketAddr;
 
@@ -7,6 +8,7 @@ pub struct Options {
     pub(crate) auth: Option<Vec<u8>>,
     pub(crate) metadata: Vec<(String, AttrVal)>,
     pub(crate) server_addr: SocketAddr,
+    pub(crate) timeline_identifier: fn() -> TimelineInfo,
 }
 
 impl Options {
@@ -17,6 +19,7 @@ impl Options {
             auth,
             metadata: Vec::new(),
             server_addr,
+            timeline_identifier: thread_timeline,
         }
     }
 
@@ -34,6 +37,10 @@ impl Options {
                 std::fs::read_to_string(file_path).ok()
             })
             .and_then(|t| hex::decode(t.trim()).ok())
+    }
+
+    pub fn set_timeline_identifier(&mut self, identifier: fn() -> TimelineInfo) {
+        self.timeline_identifier = identifier;
     }
 
     /// Set an auth token to be provided to modality. Tokens should be a hex stringish value.

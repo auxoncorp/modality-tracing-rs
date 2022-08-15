@@ -66,6 +66,8 @@ pub enum IngestError {
     UnexpectedFailure(#[from] anyhow::Error),
 }
 
+/// Default function used to retrieve the timeline information associated with
+/// the current thread. May be replaced by a user-provided callback function.
 pub(crate) fn thread_timeline() -> TimelineInfo {
     THREAD_TIMELINE_INFO.with(|id| (*id).clone())
 }

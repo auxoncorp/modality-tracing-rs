@@ -4,18 +4,41 @@ pub(crate) mod options;
 
 #[cfg(doc)]
 use crate::Options;
-use ingest::{ConnectError, TimelineId};
+use crate::TimelineId;
+use ingest::ConnectError;
 use once_cell::sync::OnceCell;
 use std::fmt::Debug;
 use thiserror::Error;
 
+/// A structure representing the information tracked for a given Modality Timeline
 #[derive(Debug, Clone)]
 pub struct TimelineInfo {
-    // TODO: Can we make this a &'static str to avoid allocations? Maybe a Cow<str>?
-    pub name: String,
-    pub id: TimelineId,
+    pub(crate) name: String,
+    pub(crate) id: TimelineId,
 }
 
+impl TimelineInfo {
+    /// Create a new TimelineInfo structure
+    pub fn new(name: String, id: TimelineId) -> Self {
+        Self { name, id }
+    }
+
+    /// Retrieve the name of the timeline
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    /// Retrieve the [TimelineId](crate::TimelineId) of the timeline
+    pub fn id(&self) -> &TimelineId {
+        &self.id
+    }
+}
+
+// This holds the callback function used to identify the current timeline.
+//
+// By *default*, this uses a thread-local to store unique information per-thread,
+// though this may be overriden by the user via the Options structure at initialization
+// time.
 pub(crate) static TIMELINE_IDENTIFIER: OnceCell<fn() -> TimelineInfo> = OnceCell::new();
 
 #[derive(Debug, Error)]
@@ -43,5 +66,9 @@ pub enum InitError {
 /// Retrieve the current local timeline ID. Useful for for sending alongside data and a custom nonce
 /// for recording timeline interactions on remote timelines.
 pub fn timeline_id() -> TimelineId {
-    ingest::thread_timeline().id
+    let f = TIMELINE_IDENTIFIER
+        .get()
+        .expect("Modality should be initialized before getting current timeline id");
+
+    *(*f)().id()
 }

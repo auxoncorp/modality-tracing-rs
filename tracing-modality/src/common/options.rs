@@ -39,8 +39,22 @@ impl Options {
             .and_then(|t| hex::decode(t.trim()).ok())
     }
 
+    /// Provide a callback function used to determine the current timeline of execution.
+    ///
+    /// By default, each operating system thread will be registered as a single timeline.
+    /// If a different partitioning of timelines is required, such as one timeline per
+    /// async task, or software module within the same thread, the default behavior
+    /// can be overridden.
+    ///
+    /// The callback provided will be called each time a `tracing` event is recorded to
+    /// determine the appropriate timeline to record the event on.
     pub fn set_timeline_identifier(&mut self, identifier: fn() -> TimelineInfo) {
         self.timeline_identifier = identifier;
+    }
+    /// A chainable version of [set_timeline_identifier](Self::set_timeline_identifier).
+    pub fn with_timeline_identifier(mut self, identifier: fn() -> TimelineInfo) -> Self {
+        self.timeline_identifier = identifier;
+        self
     }
 
     /// Set an auth token to be provided to modality. Tokens should be a hex stringish value.

@@ -62,14 +62,12 @@ pub enum InitError {
     UnexpectedFailure(#[from] anyhow::Error),
 }
 
-// TODO(AJM): I don't think this function should exist anymore.
-//
-// /// Retrieve the current local timeline ID. Useful for for sending alongside data and a custom nonce
-// /// for recording timeline interactions on remote timelines.
-// pub fn timeline_id() -> TimelineId {
-//     let f = TIMELINE_IDENTIFIER
-//         .get()
-//         .expect("Modality should be initialized before getting current timeline id");
+/// Retrieve the current user timeline ID. Useful for for sending alongside data and a custom nonce
+/// for recording timeline interactions on remote timelines.
+pub fn timeline_id() -> u64 {
+    let f = TIMELINE_IDENTIFIER
+        .get()
+        .expect("Modality should be initialized before getting current timeline id");
 
-//     *(*f)().id()
-// }
+    (*f)().user_id
+}

@@ -7,7 +7,7 @@ use std::sync::{
 use std::time::{Duration, Instant};
 use std::{fmt, thread};
 use tracing_core::Dispatch;
-use tracing_modality::blocking::{timeline_id, ModalityLayer, TimelineId};
+use tracing_modality::{blocking::ModalityLayer, timeline_id};
 use tracing_subscriber::{fmt::Layer, layer::SubscriberExt, Registry};
 
 fn main() {
@@ -134,7 +134,7 @@ pub struct MessageMetadata {
     /// When was this message from?
     timestamp: NanosecondsSinceUnixEpoch,
     /// Which tracing timeline was this from?
-    timeline_id: TimelineId,
+    timeline_id: u64,
     /// A correlation nonce for precisely matching
     /// the source event related to this message.
     nonce: Option<i64>,
@@ -231,7 +231,7 @@ mod producer {
     fn send_measurement(
         sample: i8,
         consumer_tx: &SyncSender<MeasurementMessage>,
-        timeline_id: TimelineId,
+        timeline_id: u64,
         nonce: i64,
     ) {
         // The measurement sample value must be in the range [-50, 50]
@@ -307,17 +307,19 @@ mod consumer {
                 Ok(msg) => {
                     if let Some(nonce) = msg.meta.nonce {
                         tracing::info!(
-                        sample = msg.sample,
-                        interaction.remote_timeline_id = %msg.meta.timeline_id.get_raw(),
-                        interaction.remote_timestamp = msg.meta.timestamp.0,
-                        interaction.remote_nonce=nonce,
-                        "Received measurement message");
+                            sample = msg.sample,
+                            interaction.remote_timeline_id = msg.meta.timeline_id,
+                            interaction.remote_timestamp = msg.meta.timestamp.0,
+                            interaction.remote_nonce = nonce,
+                            "Received measurement message"
+                        );
                     } else {
                         tracing::info!(
-                        sample = msg.sample,
-                        interaction.remote_timeline_id = %msg.meta.timeline_id.get_raw(),
-                        interaction.remote_timestamp = msg.meta.timestamp.0,
-                        "Received measurement message");
+                            sample = msg.sample,
+                            interaction.remote_timeline_id = msg.meta.timeline_id,
+                            interaction.remote_timestamp = msg.meta.timestamp.0,
+                            "Received measurement message"
+                        );
                     }
 
                     expensive_task(msg.sample, &is_shutdown_requested);
@@ -380,9 +382,10 @@ mod monitor {
                 Ok(msg) => {
                     tracing::info!(
                         source = msg.source.name(),
-                        interaction.remote_timeline_id = %msg.meta.timeline_id.get_raw(),
+                        interaction.remote_timeline_id = msg.meta.timeline_id,
                         interaction.remote_timestamp = msg.meta.timestamp.0,
-                        "Received heartbeat message");
+                        "Received heartbeat message"
+                    );
                     let prev = component_to_last_rx.insert(msg.source, Instant::now());
                     if prev.is_none() {
                         tracing::info!(
@@ -421,7 +424,7 @@ fn send_heartbeat(
     source: Component,
     // What is the timeline id of the component sending the heartbeat?
     // Instead of passing this around, for a small cost, one could use the timeline_id() fn
-    timeline_id: TimelineId,
+    timeline_id: u64,
 ) {
     let timestamp = match NanosecondsSinceUnixEpoch::now() {
         Ok(timestamp) => timestamp,

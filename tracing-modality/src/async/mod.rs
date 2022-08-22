@@ -3,7 +3,7 @@ mod layer;
 use crate::common::ingest;
 pub use crate::options::Options;
 use crate::InitError;
-pub use ingest::{ModalityIngestTaskHandle, TimelineId};
+pub use ingest::ModalityIngestTaskHandle;
 pub use layer::ModalityLayer;
 
 use anyhow::Context as _;

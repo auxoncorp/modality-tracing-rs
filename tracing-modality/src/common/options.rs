@@ -1,6 +1,51 @@
-use crate::{common::ingest::thread_timeline, TimelineInfo};
+use crate::UserTimelineInfo;
 use modality_ingest_client::types::AttrVal;
 use std::net::SocketAddr;
+use once_cell::sync::Lazy;
+use std::collections::hash_map::DefaultHasher;
+use std::hash::Hasher;
+use std::thread;
+use std::hash::Hash;
+
+thread_local! {
+    static THREAD_TIMELINE_INFO: Lazy<UserTimelineInfo> = Lazy::new(|| {
+        let cur = thread::current();
+        let name = cur
+            .name()
+            .map(Into::into)
+            .unwrap_or_else(|| format!("thread-{:?}", cur.id()));
+
+        let id = cur.id();
+
+        // So, this is unfortunate, but until https://github.com/rust-lang/rust/issues/67939
+        // is decided, there isn't a way to extract the u64 thread ID. So instead, we'll hash
+        // it I guess, which also happens to give us a u64. The DefaultHasher uses SipHash,
+        // which again is a very silly thing to do to hash the underlying u64, but the
+        // alternatives would be:
+        //
+        // * To write a fake hasher function, that exfiltrates the underlying value
+        // * To use a "weaker" hash function than SipHash
+        //
+        // In practice, this only happens once per thread, so the actual impact is negligible,
+        // and is acceptable for now, particularly as this is already the hasher used for
+        // the standard library's hashmaps, so the code will be present regardless in the
+        // final binary. If this CPU usage is impacting your application, please open an issue.
+        let mut hasher = DefaultHasher::new();
+        id.hash(&mut hasher);
+        let user_id = hasher.finish();
+
+        UserTimelineInfo {
+            name,
+            user_id,
+        }
+    });
+}
+
+/// Default function used to retrieve the timeline information associated with
+/// the current thread. May be replaced by a user-provided callback function.
+fn thread_timeline() -> UserTimelineInfo {
+    THREAD_TIMELINE_INFO.with(|info| (*info).clone())
+}
 
 /// Initialization options.
 #[derive(Clone)]
@@ -8,7 +53,7 @@ pub struct Options {
     pub(crate) auth: Option<Vec<u8>>,
     pub(crate) metadata: Vec<(String, AttrVal)>,
     pub(crate) server_addr: SocketAddr,
-    pub(crate) timeline_identifier: fn() -> TimelineInfo,
+    pub(crate) timeline_identifier: fn() -> UserTimelineInfo,
 }
 
 impl Options {
@@ -48,11 +93,11 @@ impl Options {
     ///
     /// The callback provided will be called each time a `tracing` event is recorded to
     /// determine the appropriate timeline to record the event on.
-    pub fn set_timeline_identifier(&mut self, identifier: fn() -> TimelineInfo) {
+    pub fn set_timeline_identifier(&mut self, identifier: fn() -> UserTimelineInfo) {
         self.timeline_identifier = identifier;
     }
     /// A chainable version of [set_timeline_identifier](Self::set_timeline_identifier).
-    pub fn with_timeline_identifier(mut self, identifier: fn() -> TimelineInfo) -> Self {
+    pub fn with_timeline_identifier(mut self, identifier: fn() -> UserTimelineInfo) -> Self {
         self.timeline_identifier = identifier;
         self
     }

@@ -4,6 +4,10 @@
 #![allow(clippy::needless_doctest_main)]
 #![warn(clippy::all)]
 
+
+// TODO(AJM): removeme
+#![allow(unused_variables, dead_code)]
+
 #[cfg(feature = "async")]
 mod r#async;
 #[cfg(feature = "blocking")]

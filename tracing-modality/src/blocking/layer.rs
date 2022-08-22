@@ -1,5 +1,5 @@
 use crate::common::options::Options;
-use crate::InitError;
+use crate::{InitError, RUN_ID, TIMELINE_IDENTIFIER};
 
 use crate::common::layer::LayerHandler;
 use crate::ingest::{ModalityIngest, ModalityIngestThreadHandle, WrappedMessage};
@@ -30,6 +30,14 @@ impl ModalityLayer {
     ) -> Result<(Self, ModalityIngestThreadHandle), InitError> {
         let run_id = Uuid::new_v4();
         opts.add_metadata("run_id", run_id.to_string());
+
+        RUN_ID
+            .set(run_id)
+            .map_err(|_| InitError::InitializedTwice)?;
+
+        TIMELINE_IDENTIFIER
+            .set(opts.timeline_identifier)
+            .map_err(|_| InitError::InitializedTwice)?;
 
         let ingest = ModalityIngest::connect(opts).context("connect to modality")?;
         let ingest_handle = ingest.spawn_thread();

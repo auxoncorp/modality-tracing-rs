@@ -1,7 +1,7 @@
-use crate::{ingest::TimelineId, TimelineInfo};
+use crate::ingest::TimelineId;
 
 use crate::ingest::WrappedMessage;
-use crate::{ingest, TIMELINE_IDENTIFIER};
+use crate::{ingest, TIMELINE_IDENTIFIER, UserTimelineInfo};
 
 use duplicate::duplicate_item;
 use once_cell::sync::Lazy;
@@ -71,14 +71,13 @@ trait LayerCommon: LayerHandler {
             }
         };
 
-        let TimelineInfo { name, id } = info;
-
-        self.ensure_timeline_has_been_initialized(&name, &id);
+        let UserTimelineInfo { name, user_id } = info;
 
         let wrapped_message = ingest::WrappedMessage {
             message,
             tick: START.elapsed(),
-            timeline: id,
+            timeline_name: name,
+            user_timeline_id: user_id,
         };
 
         if let Err(_e) = self.send(wrapped_message) {
@@ -106,46 +105,6 @@ trait LayerCommon: LayerHandler {
             let id = NEXT_SPAN_ID.fetch_add(1, Ordering::Relaxed);
             if let Some(id) = NonZeroU64::new(id) {
                 return LocalSpanId(id);
-            }
-        }
-    }
-
-    fn ensure_timeline_has_been_initialized(&self, name: &str, timeline: &TimelineId) {
-        // Is this timeline known?
-        //
-        // If the RwLock for known timelines is poisoned, something has gone terribly wrong,
-        // so just assume it is known.
-        //
-        // Additionally, we do the read and write steps separately to support the "fast path"
-        // where the timeline is already known. This means "new" timelines will have to acquire
-        // the RwLock twice: once for reading, and once for writing, but the first trace will
-        // already be relatively expensive as we have to register the timeline anyway.
-        //
-        // TODO: In the future, it might be possible to skip *both* of these steps if the modality
-        // backend could "auto-register" timelines on first reception. This would also help
-        // prevent unbounded growth of the known timelines hashset.
-        let is_known = KNOWN_TIMELINES
-            .read()
-            .map(|rdr| rdr.contains(timeline))
-            .unwrap_or(true);
-
-        // The timeline isn't known, we need to register it.
-        if !is_known {
-            let message = ingest::Message::NewTimeline {
-                name: name.to_string(),
-            };
-            let wrapped_message = ingest::WrappedMessage {
-                message,
-                tick: START.elapsed(),
-                timeline: *timeline,
-            };
-
-            // ignore failures, exceedingly unlikely here, will get caught in `handle_message`
-            let _ = self.send(wrapped_message);
-
-            // Again, if the known timelines
-            if let Ok(mut wtr) = KNOWN_TIMELINES.write() {
-                wtr.insert(*timeline);
             }
         }
     }

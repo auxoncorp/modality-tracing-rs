@@ -2,7 +2,7 @@ pub use modality_ingest_client::types::TimelineId;
 
 use crate::{
     layer::{RecordMap, TracingValue},
-    Options, TimelineInfo,
+    Options,
 };
 use anyhow::Context;
 use modality_ingest_client::{
@@ -10,7 +10,6 @@ use modality_ingest_client::{
     types::{AttrKey, AttrVal, BigInt, LogicalTime, Nanoseconds, Uuid},
     IngestError as SdkIngestError,
 };
-use once_cell::sync::Lazy;
 use std::{collections::HashMap, num::NonZeroU64, time::Duration};
 use thiserror::Error;
 use tokio::{
@@ -26,23 +25,6 @@ use std::thread::{self, JoinHandle};
 use tokio::runtime::Runtime;
 #[cfg(feature = "async")]
 use tokio::task;
-
-thread_local! {
-    static THREAD_TIMELINE_INFO: Lazy<TimelineInfo> = Lazy::new(|| {
-        let cur = thread::current();
-        let name = cur
-            .name()
-            .map(Into::into)
-            .unwrap_or_else(|| format!("thread-{:?}", cur.id()));
-
-        let id = TimelineId::allocate();
-
-        TimelineInfo {
-            name,
-            id,
-        }
-    });
-}
 
 #[derive(Debug, Error)]
 pub enum ConnectError {
@@ -66,19 +48,14 @@ pub enum IngestError {
     UnexpectedFailure(#[from] anyhow::Error),
 }
 
-/// Default function used to retrieve the timeline information associated with
-/// the current thread. May be replaced by a user-provided callback function.
-pub(crate) fn thread_timeline() -> TimelineInfo {
-    THREAD_TIMELINE_INFO.with(|id| (*id).clone())
-}
-
 pub(crate) type SpanId = NonZeroU64;
 
 #[derive(Debug)]
 pub(crate) struct WrappedMessage {
     pub message: Message,
     pub tick: Duration,
-    pub timeline: TimelineId,
+    pub timeline_name: String,
+    pub user_timeline_id: u64,
 }
 
 #[derive(Debug)]
@@ -224,12 +201,16 @@ impl ModalityIngest {
 
         // open a timeline for the current thread because we need to open something to make the
         // types work
-        let timeline_id = thread_timeline();
-        let client = client
-            .open_timeline(timeline_id.id)
-            .await
-            .context("open new timeline")?;
+        //
+        // TODO(AJM): Should this be thread_timeline? Or the user callback?
+        let client = todo!("Figure out how to get timeline at this point. Do we have a run_id yet?");
+        // let timeline_id = thread_timeline();
+        // let client = client
+        //     .open_timeline(timeline_id.id)
+        //     .await
+        //     .context("open new timeline")?;
 
+        #[allow(unreachable_code)]
         Ok(Self {
             client,
             global_metadata: options.metadata,
@@ -305,227 +286,229 @@ impl ModalityIngest {
     }
 
     async fn handle_packet(&mut self, message: WrappedMessage) -> Result<(), IngestError> {
-        let WrappedMessage {
-            message,
-            tick,
-            timeline,
-        } = message;
+        todo!("Rework processing!")
 
-        if self.client.bound_timeline() != timeline {
-            self.client
-                .open_timeline(timeline)
-                .await
-                .context("open new timeline")?;
-        }
+        // let WrappedMessage {
+        //     message,
+        //     tick,
+        //     timeline,
+        // } = message;
 
-        match message {
-            Message::NewTimeline { name } => {
-                let mut timeline_metadata = self.global_metadata.clone();
+        // if self.client.bound_timeline() != timeline {
+        //     self.client
+        //         .open_timeline(timeline)
+        //         .await
+        //         .context("open new timeline")?;
+        // }
 
-                if !timeline_metadata.iter().any(|(k, _v)| k == "name") {
-                    timeline_metadata.push(("timeline.name".to_string(), name.into()));
-                }
+        // match message {
+        //     Message::NewTimeline { name } => {
+        //         let mut timeline_metadata = self.global_metadata.clone();
 
-                for (key, value) in timeline_metadata {
-                    let timeline_key_name = self
-                        .get_or_create_timeline_attr_key(key)
-                        .await
-                        .context("get or define timeline attr key")?;
+        //         if !timeline_metadata.iter().any(|(k, _v)| k == "name") {
+        //             timeline_metadata.push(("timeline.name".to_string(), name.into()));
+        //         }
 
-                    self.client
-                        .timeline_metadata([(timeline_key_name, value)])
-                        .await
-                        .context("apply timeline metadata")?;
-                }
-            }
-            Message::NewSpan {
-                id,
-                metadata,
-                mut records,
-            } => {
-                let name = {
-                    // store name for future use
-                    let name = records
-                        .get("name")
-                        .or_else(|| records.get("message"))
-                        .map(|n| format!("{:?}", n))
-                        .unwrap_or_else(|| metadata.name().to_string());
+        //         for (key, value) in timeline_metadata {
+        //             let timeline_key_name = self
+        //                 .get_or_create_timeline_attr_key(key)
+        //                 .await
+        //                 .context("get or define timeline attr key")?;
 
-                    self.span_names.insert(id, name.clone());
+        //             self.client
+        //                 .timeline_metadata([(timeline_key_name, value)])
+        //                 .await
+        //                 .context("apply timeline metadata")?;
+        //         }
+        //     }
+        //     Message::NewSpan {
+        //         id,
+        //         metadata,
+        //         mut records,
+        //     } => {
+        //         let name = {
+        //             // store name for future use
+        //             let name = records
+        //                 .get("name")
+        //                 .or_else(|| records.get("message"))
+        //                 .map(|n| format!("{:?}", n))
+        //                 .unwrap_or_else(|| metadata.name().to_string());
 
-                    name
-                };
+        //             self.span_names.insert(id, name.clone());
 
-                let mut packed_attrs = Vec::new();
+        //             name
+        //         };
 
-                packed_attrs.push((
-                    self.get_or_create_event_attr_key("event.name".to_string())
-                        .await?,
-                    AttrVal::String(name),
-                ));
+        //         let mut packed_attrs = Vec::new();
 
-                let kind = records
-                    .remove("modality.kind")
-                    .map(tracing_value_to_attr_val)
-                    .unwrap_or_else(|| "span:defined".into());
-                packed_attrs.push((
-                    self.get_or_create_event_attr_key("event.internal.rs.kind".to_string())
-                        .await?,
-                    kind,
-                ));
+        //         packed_attrs.push((
+        //             self.get_or_create_event_attr_key("event.name".to_string())
+        //                 .await?,
+        //             AttrVal::String(name),
+        //         ));
 
-                let span_id = records
-                    .remove("modality.span_id")
-                    .map(tracing_value_to_attr_val)
-                    .unwrap_or_else(|| BigInt::new_attr_val(u64::from(id) as i128));
-                packed_attrs.push((
-                    self.get_or_create_event_attr_key("event.internal.rs.span_id".to_string())
-                        .await?,
-                    span_id,
-                ));
+        //         let kind = records
+        //             .remove("modality.kind")
+        //             .map(tracing_value_to_attr_val)
+        //             .unwrap_or_else(|| "span:defined".into());
+        //         packed_attrs.push((
+        //             self.get_or_create_event_attr_key("event.internal.rs.kind".to_string())
+        //                 .await?,
+        //             kind,
+        //         ));
 
-                self.pack_common_attrs(&mut packed_attrs, metadata, records, tick)
-                    .await?;
+        //         let span_id = records
+        //             .remove("modality.span_id")
+        //             .map(tracing_value_to_attr_val)
+        //             .unwrap_or_else(|| BigInt::new_attr_val(u64::from(id) as i128));
+        //         packed_attrs.push((
+        //             self.get_or_create_event_attr_key("event.internal.rs.span_id".to_string())
+        //                 .await?,
+        //             span_id,
+        //         ));
 
-                self.client
-                    .event(tick.as_nanos(), packed_attrs)
-                    .await
-                    .context("send packed event")?;
-            }
-            Message::Record { span, records } => {
-                // TODO: span events can't be added to after being sent, impl this once we can use
-                // timelines to represent spans
+        //         self.pack_common_attrs(&mut packed_attrs, metadata, records, tick)
+        //             .await?;
 
-                let _ = span;
-                let _ = records;
-            }
-            Message::RecordFollowsFrom { span, follows } => {
-                // TODO: span events can't be added to after being sent, impl this once we can use
-                // timelines to represent spans
+        //         self.client
+        //             .event(tick.as_nanos(), packed_attrs)
+        //             .await
+        //             .context("send packed event")?;
+        //     }
+        //     Message::Record { span, records } => {
+        //         // TODO: span events can't be added to after being sent, impl this once we can use
+        //         // timelines to represent spans
 
-                let _ = span;
-                let _ = follows;
-            }
-            Message::Event {
-                metadata,
-                mut records,
-            } => {
-                let mut packed_attrs = Vec::new();
+        //         let _ = span;
+        //         let _ = records;
+        //     }
+        //     Message::RecordFollowsFrom { span, follows } => {
+        //         // TODO: span events can't be added to after being sent, impl this once we can use
+        //         // timelines to represent spans
 
-                let kind = records
-                    .remove("modality.kind")
-                    .map(tracing_value_to_attr_val)
-                    .unwrap_or_else(|| "event".into());
-                packed_attrs.push((
-                    self.get_or_create_event_attr_key("event.internal.rs.kind".to_string())
-                        .await?,
-                    kind,
-                ));
+        //         let _ = span;
+        //         let _ = follows;
+        //     }
+        //     Message::Event {
+        //         metadata,
+        //         mut records,
+        //     } => {
+        //         let mut packed_attrs = Vec::new();
 
-                self.pack_common_attrs(&mut packed_attrs, metadata, records, tick)
-                    .await?;
+        //         let kind = records
+        //             .remove("modality.kind")
+        //             .map(tracing_value_to_attr_val)
+        //             .unwrap_or_else(|| "event".into());
+        //         packed_attrs.push((
+        //             self.get_or_create_event_attr_key("event.internal.rs.kind".to_string())
+        //                 .await?,
+        //             kind,
+        //         ));
 
-                self.client
-                    .event(tick.as_nanos(), packed_attrs)
-                    .await
-                    .context("send packed event")?;
-            }
-            Message::Enter { span } => {
-                let mut packed_attrs = Vec::new();
+        //         self.pack_common_attrs(&mut packed_attrs, metadata, records, tick)
+        //             .await?;
 
-                {
-                    // get stored span name
-                    let name = self.span_names.get(&span).map(|n| format!("enter: {}", n));
+        //         self.client
+        //             .event(tick.as_nanos(), packed_attrs)
+        //             .await
+        //             .context("send packed event")?;
+        //     }
+        //     Message::Enter { span } => {
+        //         let mut packed_attrs = Vec::new();
 
-                    if let Some(name) = name {
-                        packed_attrs.push((
-                            self.get_or_create_event_attr_key("event.name".to_string())
-                                .await?,
-                            AttrVal::String(name),
-                        ));
-                    }
-                };
+        //         {
+        //             // get stored span name
+        //             let name = self.span_names.get(&span).map(|n| format!("enter: {}", n));
 
-                packed_attrs.push((
-                    self.get_or_create_event_attr_key("event.internal.rs.kind".to_string())
-                        .await?,
-                    AttrVal::String("span:enter".to_string()),
-                ));
+        //             if let Some(name) = name {
+        //                 packed_attrs.push((
+        //                     self.get_or_create_event_attr_key("event.name".to_string())
+        //                         .await?,
+        //                     AttrVal::String(name),
+        //                 ));
+        //             }
+        //         };
 
-                packed_attrs.push((
-                    self.get_or_create_event_attr_key("event.internal.rs.span_id".to_string())
-                        .await?,
-                    BigInt::new_attr_val(u64::from(span).into()),
-                ));
+        //         packed_attrs.push((
+        //             self.get_or_create_event_attr_key("event.internal.rs.kind".to_string())
+        //                 .await?,
+        //             AttrVal::String("span:enter".to_string()),
+        //         ));
 
-                // only record tick directly during the first ~5.8 centuries this program is running
-                if let Ok(tick) = TryInto::<u64>::try_into(tick.as_nanos()) {
-                    packed_attrs.push((
-                        self.get_or_create_event_attr_key("event.internal.rs.tick".to_string())
-                            .await?,
-                        AttrVal::LogicalTime(LogicalTime::unary(tick)),
-                    ));
-                }
+        //         packed_attrs.push((
+        //             self.get_or_create_event_attr_key("event.internal.rs.span_id".to_string())
+        //                 .await?,
+        //             BigInt::new_attr_val(u64::from(span).into()),
+        //         ));
 
-                self.client
-                    .event(tick.as_nanos(), packed_attrs)
-                    .await
-                    .context("send packed event")?;
-            }
-            Message::Exit { span } => {
-                let mut packed_attrs = Vec::new();
+        //         // only record tick directly during the first ~5.8 centuries this program is running
+        //         if let Ok(tick) = TryInto::<u64>::try_into(tick.as_nanos()) {
+        //             packed_attrs.push((
+        //                 self.get_or_create_event_attr_key("event.internal.rs.tick".to_string())
+        //                     .await?,
+        //                 AttrVal::LogicalTime(LogicalTime::unary(tick)),
+        //             ));
+        //         }
 
-                {
-                    // get stored span name
-                    let name = self.span_names.get(&span).map(|n| format!("exit: {}", n));
+        //         self.client
+        //             .event(tick.as_nanos(), packed_attrs)
+        //             .await
+        //             .context("send packed event")?;
+        //     }
+        //     Message::Exit { span } => {
+        //         let mut packed_attrs = Vec::new();
 
-                    if let Some(name) = name {
-                        packed_attrs.push((
-                            self.get_or_create_event_attr_key("event.name".to_string())
-                                .await?,
-                            AttrVal::String(name),
-                        ));
-                    }
-                };
+        //         {
+        //             // get stored span name
+        //             let name = self.span_names.get(&span).map(|n| format!("exit: {}", n));
 
-                packed_attrs.push((
-                    self.get_or_create_event_attr_key("event.internal.rs.kind".to_string())
-                        .await?,
-                    AttrVal::String("span:exit".to_string()),
-                ));
+        //             if let Some(name) = name {
+        //                 packed_attrs.push((
+        //                     self.get_or_create_event_attr_key("event.name".to_string())
+        //                         .await?,
+        //                     AttrVal::String(name),
+        //                 ));
+        //             }
+        //         };
 
-                packed_attrs.push((
-                    self.get_or_create_event_attr_key("event.internal.rs.span_id".to_string())
-                        .await?,
-                    BigInt::new_attr_val(u64::from(span).into()),
-                ));
+        //         packed_attrs.push((
+        //             self.get_or_create_event_attr_key("event.internal.rs.kind".to_string())
+        //                 .await?,
+        //             AttrVal::String("span:exit".to_string()),
+        //         ));
 
-                // only record tick directly during the first ~5.8 centuries this program is running
-                if let Ok(tick) = TryInto::<u64>::try_into(tick.as_nanos()) {
-                    packed_attrs.push((
-                        self.get_or_create_event_attr_key("event.internal.rs.tick".to_string())
-                            .await?,
-                        AttrVal::LogicalTime(LogicalTime::unary(tick)),
-                    ));
-                }
+        //         packed_attrs.push((
+        //             self.get_or_create_event_attr_key("event.internal.rs.span_id".to_string())
+        //                 .await?,
+        //             BigInt::new_attr_val(u64::from(span).into()),
+        //         ));
 
-                self.client
-                    .event(tick.as_nanos(), packed_attrs)
-                    .await
-                    .context("send packed event")?;
-            }
-            Message::Close { span } => {
-                self.span_names.remove(&span);
-            }
-            Message::IdChange { old, new } => {
-                let name = self.span_names.get(&old).cloned();
-                if let Some(name) = name {
-                    self.span_names.insert(new, name);
-                }
-            }
-        }
+        //         // only record tick directly during the first ~5.8 centuries this program is running
+        //         if let Ok(tick) = TryInto::<u64>::try_into(tick.as_nanos()) {
+        //             packed_attrs.push((
+        //                 self.get_or_create_event_attr_key("event.internal.rs.tick".to_string())
+        //                     .await?,
+        //                 AttrVal::LogicalTime(LogicalTime::unary(tick)),
+        //             ));
+        //         }
 
-        Ok(())
+        //         self.client
+        //             .event(tick.as_nanos(), packed_attrs)
+        //             .await
+        //             .context("send packed event")?;
+        //     }
+        //     Message::Close { span } => {
+        //         self.span_names.remove(&span);
+        //     }
+        //     Message::IdChange { old, new } => {
+        //         let name = self.span_names.get(&old).cloned();
+        //         if let Some(name) = name {
+        //             self.span_names.insert(new, name);
+        //         }
+        //     }
+        // }
+
+        // Ok(())
     }
 
     async fn get_or_create_timeline_attr_key(

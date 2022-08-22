@@ -1,18 +1,13 @@
-use crate::ingest::TimelineId;
-
 use crate::ingest::WrappedMessage;
 use crate::{ingest, UserTimelineInfo, TIMELINE_IDENTIFIER};
 
 use duplicate::duplicate_item;
 use once_cell::sync::Lazy;
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     fmt::Debug,
     num::NonZeroU64,
-    sync::{
-        atomic::{AtomicBool, AtomicU64, Ordering},
-        RwLock,
-    },
+    sync::atomic::{AtomicBool, AtomicU64, Ordering},
     time::Instant,
 };
 use tokio::sync::mpsc;
@@ -42,9 +37,6 @@ pub(crate) struct SpanName(String);
 impl LayerCommon for crate::r#async::ModalityLayer {}
 #[cfg(feature = "blocking")]
 impl LayerCommon for crate::blocking::ModalityLayer {}
-
-static KNOWN_TIMELINES: Lazy<RwLock<HashSet<TimelineId>>> =
-    Lazy::new(|| RwLock::new(HashSet::new()));
 
 pub(crate) trait LayerHandler {
     fn send(&self, msg: WrappedMessage) -> Result<(), mpsc::error::SendError<WrappedMessage>>;

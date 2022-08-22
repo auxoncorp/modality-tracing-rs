@@ -2,7 +2,8 @@ pub use modality_ingest_client::types::TimelineId;
 
 use crate::{
     layer::{RecordMap, TracingValue},
-    Options, timeline_lru::TimelineLru,
+    timeline_lru::TimelineLru,
+    Options,
 };
 use anyhow::Context;
 use modality_ingest_client::{
@@ -336,8 +337,6 @@ impl ModalityIngest {
             }
         };
 
-        // TODO(AJM): DO LRU EVICTION HERE!
-
         if self.client.bound_timeline() != timeline_id {
             self.client
                 .open_timeline(timeline_id)
@@ -549,8 +548,6 @@ impl ModalityIngest {
         }
 
         Ok(())
-
-        // todo!("Rework processing!");
     }
 
     async fn get_or_create_timeline_attr_key(

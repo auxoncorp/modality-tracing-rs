@@ -1,5 +1,5 @@
-use std::{time::Instant, mem::swap};
 use modality_ingest_client::types::TimelineId;
+use std::{mem::swap, time::Instant};
 
 /// A Least Recently Used (LRU) cache of timeline information
 pub struct TimelineLru {
@@ -36,8 +36,10 @@ impl TimelineLru {
                 Some(li) => {
                     li.last_use = Instant::now();
                     Ok(li.timeline_id)
-                },
-                None => Err(LruToken { val: LruError::DoesntExistNotFull }),
+                }
+                None => Err(LruToken {
+                    val: LruError::DoesntExistNotFull,
+                }),
             }
         } else {
             // Traverse the list, remembering the oldest slot we've seen. We'll either:
@@ -59,7 +61,9 @@ impl TimelineLru {
             }
 
             // We reached the end, it doesn't exist.
-            Err(LruToken { val: LruError::DoesntExistReplace(oldest_slot) })
+            Err(LruToken {
+                val: LruError::DoesntExistReplace(oldest_slot),
+            })
         }
     }
 
@@ -90,7 +94,7 @@ struct LruItem {
 pub struct LruToken {
     // Note: This is a struct with a private field to ensure that
     // `query` must be called before `insert`.
-    val: LruError
+    val: LruError,
 }
 
 enum LruError {

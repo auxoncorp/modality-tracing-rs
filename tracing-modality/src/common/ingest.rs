@@ -2,7 +2,7 @@ pub use modality_ingest_client::types::TimelineId;
 
 use crate::{
     layer::{RecordMap, TracingValue},
-    Options,
+    Options, timeline_lru::TimelineLru,
 };
 use anyhow::Context;
 use modality_ingest_client::{
@@ -165,9 +165,7 @@ pub(crate) struct ModalityIngest {
     timeline_keys: HashMap<String, AttrKey>,
     span_names: HashMap<NonZeroU64, String>,
     run_id: Uuid,
-
-    // TODO(AJM): Replace me with something that does LRU cache eviction!
-    timeline_map: HashMap<u64, TimelineId>,
+    timeline_map: TimelineLru,
 
     #[cfg(feature = "blocking")]
     rt: Option<Runtime>,
@@ -229,7 +227,7 @@ impl ModalityIngest {
             timeline_keys: HashMap::new(),
             span_names: HashMap::new(),
             run_id,
-            timeline_map: HashMap::new(),
+            timeline_map: TimelineLru::with_capacity(options.lru_cache_size),
             #[cfg(feature = "blocking")]
             rt: None,
         })
@@ -298,12 +296,6 @@ impl ModalityIngest {
         let _ = self.client.flush().await;
     }
 
-    #[inline]
-    fn generate_timeline_id(&self, user_id: u64) -> TimelineId {
-        // We deterministically generate timeline IDs using UUIDv5, with
-        uuid::Uuid::new_v5(&self.run_id, &user_id.to_ne_bytes()).into()
-    }
-
     /// Ensures the reported user timeline is the currently open client timeline.
     ///
     /// * If this is a new`*` timeline, we will first register its metadata,
@@ -315,10 +307,10 @@ impl ModalityIngest {
     /// `*`: In some cases, we MAY end up re-registering the metadata for a timeline,
     /// if the timeline has not been recently used.
     async fn bind_user_timeline(&mut self, name: String, user_id: u64) -> Result<(), IngestError> {
-        let timeline_id = match self.timeline_map.get(&user_id).copied() {
-            Some(tid) => tid,
-            None => {
-                let timeline_id = self.generate_timeline_id(user_id);
+        let timeline_id = match self.timeline_map.query(user_id) {
+            Ok(tid) => tid,
+            Err(token) => {
+                let timeline_id = uuid::Uuid::new_v5(&self.run_id, &user_id.to_ne_bytes()).into();
 
                 // Register the metadata of the new* timeline ID
                 let mut timeline_metadata = self.global_metadata.clone();
@@ -337,7 +329,7 @@ impl ModalityIngest {
                 }
 
                 // Success, now add to the map
-                self.timeline_map.insert(user_id, timeline_id);
+                self.timeline_map.insert(user_id, timeline_id, token);
 
                 // And return the timeline
                 timeline_id

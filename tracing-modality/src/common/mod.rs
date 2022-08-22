@@ -1,6 +1,7 @@
 pub(crate) mod ingest;
 pub(crate) mod layer;
 pub(crate) mod options;
+pub(crate) mod timeline_lru;
 
 #[cfg(doc)]
 use crate::Options;

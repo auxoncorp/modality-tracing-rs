@@ -54,6 +54,7 @@ pub struct Options {
     pub(crate) metadata: Vec<(String, AttrVal)>,
     pub(crate) server_addr: SocketAddr,
     pub(crate) timeline_identifier: fn() -> UserTimelineInfo,
+    pub(crate) lru_cache_size: usize,
 }
 
 impl Options {
@@ -65,6 +66,7 @@ impl Options {
             metadata: Vec::new(),
             server_addr,
             timeline_identifier: thread_timeline,
+            lru_cache_size: 64,
         }
     }
 
@@ -109,6 +111,22 @@ impl Options {
     /// A chainable version of [set_auth](Self::set_auth).
     pub fn with_auth<S: AsRef<[u8]>>(mut self, auth: S) -> Self {
         self.auth = hex::decode(auth).ok();
+        self
+    }
+
+    /// How many modality timelines should be cached?
+    ///
+    /// Setting this to a higher number increases the amount of memory used to remember
+    /// which `TimelineId`s have been registered with modalityd.
+    ///
+    /// Setting this to a lower number increases the liklihood that timeline metadata
+    /// will need to be re-sent to modalityd (and the amount of network traffic sent)
+    pub fn set_lru_cache_size(&mut self, size: usize) {
+        self.lru_cache_size = size;
+    }
+    /// A chainable version of [set_lru_cache_size](Self::set_lru_cache_size).
+    pub fn with_lru_cache_size(mut self, size: usize) -> Self {
+        self.lru_cache_size = size;
         self
     }
 

@@ -1,5 +1,5 @@
 use crate::common::options::Options;
-use crate::{InitError, TIMELINE_IDENTIFIER, RUN_ID};
+use crate::{InitError, TIMELINE_IDENTIFIER};
 
 use crate::common::layer::LayerHandler;
 use crate::ingest::{ModalityIngest, ModalityIngestTaskHandle, WrappedMessage};
@@ -8,7 +8,6 @@ use anyhow::Context as _;
 use tokio::sync::mpsc::{self, UnboundedSender};
 use tracing_core::Subscriber;
 use tracing_subscriber::{layer::SubscriberExt, Registry};
-use uuid::Uuid;
 
 /// A `tracing` `Layer` that can be used to record trace events and stream them to modality in real
 /// time.
@@ -26,15 +25,8 @@ impl ModalityLayer {
 
     /// Initialize a new `ModalityLayer`, with specified options.
     pub async fn init_with_options(
-        mut opts: Options,
+        opts: Options,
     ) -> Result<(Self, ModalityIngestTaskHandle), InitError> {
-        let run_id = Uuid::new_v4();
-        opts.add_metadata("run_id", run_id.to_string());
-
-        RUN_ID
-            .set(run_id)
-            .map_err(|_| InitError::InitializedTwice)?;
-
         TIMELINE_IDENTIFIER
             .set(opts.timeline_identifier)
             .map_err(|_| InitError::InitializedTwice)?;

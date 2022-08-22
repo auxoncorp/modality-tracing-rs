@@ -341,7 +341,7 @@ impl ModalityIngest {
 
                 // And return the timeline
                 timeline_id
-            },
+            }
         };
 
         // TODO(AJM): DO LRU EVICTION HERE!
@@ -365,7 +365,8 @@ impl ModalityIngest {
         } = message;
 
         // Ensure that the user reported timeline ID is active.
-        self.bind_user_timeline(timeline_name, user_timeline_id).await?;
+        self.bind_user_timeline(timeline_name, user_timeline_id)
+            .await?;
 
         match message {
             Message::NewSpan {

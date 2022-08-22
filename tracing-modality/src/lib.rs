@@ -3,8 +3,6 @@
 // (almost) always be called from
 #![allow(clippy::needless_doctest_main)]
 #![warn(clippy::all)]
-
-
 // TODO(AJM): removeme
 #![allow(unused_variables, dead_code)]
 

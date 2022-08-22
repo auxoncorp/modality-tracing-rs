@@ -1,11 +1,11 @@
 use crate::UserTimelineInfo;
 use modality_ingest_client::types::AttrVal;
-use std::net::SocketAddr;
 use once_cell::sync::Lazy;
 use std::collections::hash_map::DefaultHasher;
-use std::hash::Hasher;
-use std::thread;
 use std::hash::Hash;
+use std::hash::Hasher;
+use std::net::SocketAddr;
+use std::thread;
 
 thread_local! {
     static THREAD_TIMELINE_INFO: Lazy<UserTimelineInfo> = Lazy::new(|| {
@@ -24,7 +24,7 @@ thread_local! {
         // alternatives would be:
         //
         // * To write a fake hasher function, that exfiltrates the underlying value
-        // * To use a "weaker" hash function than SipHash
+        // * To use a "weaker" hash function than SipHash, such as `rustc_hash::FxHasher`
         //
         // In practice, this only happens once per thread, so the actual impact is negligible,
         // and is acceptable for now, particularly as this is already the hasher used for

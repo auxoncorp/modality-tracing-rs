@@ -1,7 +1,7 @@
 use crate::ingest::TimelineId;
 
 use crate::ingest::WrappedMessage;
-use crate::{ingest, TIMELINE_IDENTIFIER, UserTimelineInfo};
+use crate::{ingest, UserTimelineInfo, TIMELINE_IDENTIFIER};
 
 use duplicate::duplicate_item;
 use once_cell::sync::Lazy;

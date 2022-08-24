@@ -229,7 +229,7 @@ where
 }
 
 #[derive(Debug)]
-pub(crate) enum TracingValue {
+pub enum TracingValue {
     String(String),
     F64(f64),
     I64(i64),

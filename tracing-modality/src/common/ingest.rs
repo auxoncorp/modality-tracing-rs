@@ -1,6 +1,7 @@
 pub use modality_ingest_client::types::TimelineId;
 
 use crate::{
+    attr_handlers::{event_fallback, AttrHandler, DEFAULT_HANDLERS},
     layer::{RecordMap, TracingValue},
     timeline_lru::TimelineLru,
     Options,
@@ -11,7 +12,7 @@ use modality_ingest_client::{
     types::{AttrKey, AttrVal, BigInt, LogicalTime, Nanoseconds, Uuid},
     IngestError as SdkIngestError,
 };
-use std::{collections::HashMap, num::NonZeroU64, time::Duration};
+use std::{borrow::Cow, collections::HashMap, num::NonZeroU64, time::Duration};
 use thiserror::Error;
 use tokio::{
     select,
@@ -167,6 +168,7 @@ pub(crate) struct ModalityIngest {
     span_names: HashMap<NonZeroU64, String>,
     run_id: Uuid,
     timeline_map: TimelineLru,
+    report_handlers: HashMap<String, AttrHandler>,
 
     #[cfg(feature = "blocking")]
     rt: Option<Runtime>,
@@ -220,7 +222,6 @@ impl ModalityIngest {
             .await
             .context("open new timeline")?;
 
-        #[allow(unreachable_code)]
         Ok(Self {
             client,
             global_metadata: options.metadata,
@@ -229,6 +230,10 @@ impl ModalityIngest {
             span_names: HashMap::new(),
             run_id,
             timeline_map: TimelineLru::with_capacity(options.lru_cache_size),
+            report_handlers: DEFAULT_HANDLERS
+                .iter()
+                .map(|(k, v)| (k.to_string(), *v))
+                .collect(),
             #[cfg(feature = "blocking")]
             rt: None,
         })
@@ -570,6 +575,9 @@ impl ModalityIngest {
     }
 
     async fn get_or_create_event_attr_key(&mut self, key: String) -> Result<AttrKey, IngestError> {
+        // TODO(AJM): This check is redundant everywhere AFAICT?
+        // Should we make a NewType that guarantees the string starts with
+        // 'event.'?
         let key = if key.starts_with("event.") {
             key
         } else {
@@ -598,158 +606,60 @@ impl ModalityIngest {
         mut records: RecordMap,
         tick: Duration,
     ) -> Result<(), IngestError> {
-        let name = records
-            .remove("name")
-            .or_else(|| records.remove("message"))
-            .map(tracing_value_to_attr_val)
-            .unwrap_or_else(|| metadata.name().into());
-        packed_attrs.push((
-            self.get_or_create_event_attr_key("event.name".to_string())
-                .await?,
-            name,
-        ));
+        let mut pre_packed_attrs: HashMap<Cow<str>, AttrVal> = HashMap::new();
 
-        let severity = records
-            .remove("severity")
-            .map(tracing_value_to_attr_val)
-            .unwrap_or_else(|| format!("{}", metadata.level()).to_lowercase().into());
-        packed_attrs.push((
-            self.get_or_create_event_attr_key("event.severity".to_string())
-                .await?,
-            severity,
-        ));
-
-        let module_path = records
-            .remove("source.module")
-            .map(tracing_value_to_attr_val)
-            .or_else(|| metadata.module_path().map(|mp| mp.into()));
-        if let Some(module_path) = module_path {
-            packed_attrs.push((
-                self.get_or_create_event_attr_key("event.source.module".to_string())
-                    .await?,
-                module_path,
-            ));
+        // First, pre-fill the attributes with contents from the tracing metadata.
+        // This may be later overridden by user contents.
+        //
+        // TODO(AJM): Do we want to move these AFTER, and check if they already exist,
+        // to avoid the cost of processing something we may throw away?
+        pre_packed_attrs.insert(Cow::Borrowed("event.name"), metadata.name().into());
+        pre_packed_attrs.insert(
+            Cow::Borrowed("event.severity"),
+            format!("{}", metadata.level()).to_lowercase().into(),
+        );
+        if let Some(mod_path) = metadata.module_path() {
+            pre_packed_attrs.insert(Cow::Borrowed("event.source.module"), mod_path.into());
         }
-
-        let source_file = records
-            .remove("source.file")
-            .map(tracing_value_to_attr_val)
-            .or_else(|| metadata.file().map(|mp| mp.into()));
-        if let Some(source_file) = source_file {
-            packed_attrs.push((
-                self.get_or_create_event_attr_key("event.source.file".to_string())
-                    .await?,
-                source_file,
-            ));
+        if let Some(file) = metadata.file() {
+            pre_packed_attrs.insert(Cow::Borrowed("event.source.file"), file.into());
         }
-
-        let source_line = records
-            .remove("source.line")
-            .map(tracing_value_to_attr_val)
-            .or_else(|| metadata.line().map(|mp| (mp as i64).into()));
-        if let Some(source_line) = source_line {
-            packed_attrs.push((
-                self.get_or_create_event_attr_key("event.source.line".to_string())
-                    .await?,
-                source_line,
-            ));
+        if let Some(line) = metadata.line() {
+            pre_packed_attrs.insert(Cow::Borrowed("event.source.line"), (line as i64).into());
         }
-
-        // only record tick directly during the first ~5.8 centuries this program is running
-        if let Ok(tick) = TryInto::<u64>::try_into(tick.as_nanos()) {
-            packed_attrs.push((
-                self.get_or_create_event_attr_key("event.internal.rs.tick".to_string())
-                    .await?,
-                AttrVal::LogicalTime(LogicalTime::unary(tick)),
-            ));
-        }
-
-        // handle manually to type the AttrVal correctly
-        let remote_timeline_id = records
-            .remove("interaction.remote_timeline_id")
-            .map(tracing_value_to_attr_val);
-        if let Some(attrval) = remote_timeline_id {
-            let remote_timeline_id = if let AttrVal::String(string) = attrval {
-                use std::str::FromStr;
-                if let Ok(uuid) = Uuid::from_str(&string) {
-                    AttrVal::TimelineId(Box::new(uuid.into()))
-                } else {
-                    AttrVal::String(string)
-                }
-            } else {
-                attrval
-            };
-
-            packed_attrs.push((
-                self.get_or_create_event_attr_key("event.interaction.remote_timeline_id".into())
-                    .await?,
-                remote_timeline_id,
-            ));
-        }
-
-        // Manually retype the remote_timestamp
-        let remote_timestamp = records
-            .remove("interaction.remote_timestamp")
-            .map(tracing_value_to_attr_val);
-        if let Some(attrval) = remote_timestamp {
-            let remote_timestamp = match attrval {
-                AttrVal::Integer(i) if i >= 0 => AttrVal::Timestamp(Nanoseconds::from(i as u64)),
-                AttrVal::BigInt(i) if *i >= 0 && *i <= u64::MAX as i128 => {
-                    AttrVal::Timestamp(Nanoseconds::from(*i as u64))
-                }
-                AttrVal::Timestamp(t) => AttrVal::Timestamp(t),
-                x => x,
-            };
-
-            packed_attrs.push((
-                self.get_or_create_event_attr_key("event.interaction.remote_timestamp".into())
-                    .await?,
-                remote_timestamp,
-            ));
-        }
-
-        // Manually retype the local timestamp
-        let local_timestamp = records.remove("timestamp").map(tracing_value_to_attr_val);
-        if let Some(attrval) = local_timestamp {
-            let remote_timestamp = match attrval {
-                AttrVal::Integer(i) if i >= 0 => AttrVal::Timestamp(Nanoseconds::from(i as u64)),
-                AttrVal::BigInt(i) if *i >= 0 && *i <= u64::MAX as i128 => {
-                    AttrVal::Timestamp(Nanoseconds::from(*i as u64))
-                }
-                AttrVal::Timestamp(t) => AttrVal::Timestamp(t),
-                x => x,
-            };
-
-            packed_attrs.push((
-                self.get_or_create_event_attr_key("event.timestamp".into())
-                    .await?,
-                remote_timestamp,
-            ));
-        } else if let Ok(duration_since_epoch) =
+        if let Ok(duration_since_epoch) =
             std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
         {
             let duration_since_epoch_in_nanos_res: Result<u64, _> =
                 duration_since_epoch.as_nanos().try_into();
             if let Ok(duration_since_epoch_in_nanos) = duration_since_epoch_in_nanos_res {
-                packed_attrs.push((
-                    self.get_or_create_event_attr_key("event.timestamp".into())
-                        .await?,
+                pre_packed_attrs.insert(
+                    Cow::Borrowed("event.timestamp"),
                     AttrVal::Timestamp(Nanoseconds::from(duration_since_epoch_in_nanos)),
-                ));
+                );
             }
         }
 
-        // pack any remaining records
-        for (name, value) in records {
-            let attrval = tracing_value_to_attr_val(value);
+        // only record tick directly during the first ~5.8 centuries this program is running
+        if let Ok(tick) = TryInto::<u64>::try_into(tick.as_nanos()) {
+            pre_packed_attrs.insert(
+                Cow::Borrowed("event.internal.rs.tick"),
+                AttrVal::LogicalTime(LogicalTime::unary(tick)),
+            );
+        }
 
-            let key = if name.starts_with("event.") {
-                name.to_string()
-            } else {
-                format!("event.{}", name.as_str())
+        // Then, provide all records to the user
+        for (name, val) in records.drain() {
+            let (key, attrval) = match self.report_handlers.get(&name) {
+                Some(hdlr) => (hdlr)(name.into(), val, &self.run_id),
+                None => event_fallback(Cow::Owned(name), val),
             };
+            pre_packed_attrs.insert(key, attrval);
+        }
 
-            packed_attrs.push((self.get_or_create_event_attr_key(key).await?, attrval));
+        for (key, val) in pre_packed_attrs.drain() {
+            let attr_key = self.get_or_create_event_attr_key(key.into()).await?;
+            packed_attrs.push((attr_key, val));
         }
 
         Ok(())
@@ -758,7 +668,7 @@ impl ModalityIngest {
 
 // `TracingValue` is `#[nonexhaustive]`, returns `None` if they add a type we don't handle and
 // fail to serialize it as a stringified json value
-fn tracing_value_to_attr_val(value: TracingValue) -> AttrVal {
+pub fn tracing_value_to_attr_val(value: TracingValue) -> AttrVal {
     match value {
         TracingValue::String(s) => AttrVal::String(s),
         TracingValue::F64(n) => AttrVal::Float(n),

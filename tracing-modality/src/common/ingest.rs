@@ -1,7 +1,7 @@
 pub use modality_ingest_client::types::TimelineId;
 
 use crate::{
-    attr_handlers::{event_fallback, HandlerFunc, AttributeHandler},
+    attr_handlers::{event_fallback, AttributeHandler, HandlerFunc},
     layer::{RecordMap, TracingValue},
     timeline_lru::TimelineLru,
     Options,
@@ -232,7 +232,7 @@ impl ModalityIngest {
         let report_handlers = options
             .attribute_handlers
             .iter()
-            .map(AttributeHandler::to_cow_key)
+            .map(AttributeHandler::as_cow_key)
             .collect();
 
         Ok(Self {

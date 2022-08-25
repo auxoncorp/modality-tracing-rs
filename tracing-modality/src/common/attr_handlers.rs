@@ -56,15 +56,12 @@
 
 use std::borrow::Cow;
 
-use modality_ingest_client::types::{AttrVal, Nanoseconds, Uuid, TimelineId};
 use crate::{ingest::tracing_value_to_attr_val, layer::TracingValue};
+use modality_ingest_client::types::{AttrVal, Nanoseconds, TimelineId, Uuid};
 
 /// A type alias for the signature required for attribute handlers
-pub type HandlerFunc = fn(
-    tracing_key: &str,
-    tracing_val: TracingValue,
-    run_id: &Uuid,
-) -> (Cow<'static, str>, AttrVal);
+pub type HandlerFunc =
+    fn(tracing_key: &str, tracing_val: TracingValue, run_id: &Uuid) -> (Cow<'static, str>, AttrVal);
 
 /// Convert a run_id (UUIDv4) and user timeline id (u64) into a Modality TimelineId
 ///
@@ -210,12 +207,12 @@ impl AttributeHandler {
         Self { key, handler }
     }
 
-    pub(crate) const fn to_cow_key(&self) -> (Cow<'static, str>, HandlerFunc) {
+    pub(crate) const fn as_cow_key(&self) -> (Cow<'static, str>, HandlerFunc) {
         (Cow::Borrowed(self.key), self.handler)
     }
 
     pub fn default_handlers() -> Vec<AttributeHandler> {
-        DEFAULT_HANDLERS.iter().copied().collect()
+        DEFAULT_HANDLERS.to_vec()
     }
 }
 

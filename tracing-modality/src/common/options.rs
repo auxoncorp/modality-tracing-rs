@@ -1,5 +1,5 @@
-use crate::UserTimelineInfo;
 use crate::attr_handlers::AttributeHandler;
+use crate::UserTimelineInfo;
 use modality_ingest_client::types::AttrVal;
 use once_cell::sync::Lazy;
 use std::collections::hash_map::DefaultHasher;

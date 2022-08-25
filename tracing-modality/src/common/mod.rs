@@ -1,4 +1,5 @@
-pub(crate) mod attr_handlers;
+pub mod attr_handlers;
+
 pub(crate) mod ingest;
 pub(crate) mod layer;
 pub(crate) mod options;

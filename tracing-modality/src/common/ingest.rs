@@ -1,7 +1,7 @@
 pub use modality_ingest_client::types::TimelineId;
 
 use crate::{
-    attr_handlers::{event_fallback, AttrHandler, DEFAULT_HANDLERS},
+    attr_handlers::{event_fallback, HandlerFunc, AttributeHandler},
     layer::{RecordMap, TracingValue},
     timeline_lru::TimelineLru,
     Options,
@@ -168,12 +168,14 @@ pub(crate) struct ModalityIngest {
     client: IngestClient<BoundTimelineState>,
     global_metadata: Vec<(String, AttrVal)>,
     event_keys: HashMap<String, AttrKey>,
-    // TODO(AJM): Should these be per-timeline? Or are all attrs shared with all timelines?
     timeline_keys: HashMap<String, AttrKey>,
     span_names: HashMap<NonZeroU64, String>,
     run_id: Uuid,
     timeline_map: TimelineLru,
-    report_handlers: HashMap<String, AttrHandler>,
+
+    // NOTE: We use `Cow<'static, str>` to allow users to provide a String OR a `&'static str`
+    // to use as the key
+    report_handlers: HashMap<Cow<'static, str>, HandlerFunc>,
 
     #[cfg(feature = "blocking")]
     rt: Option<Runtime>,
@@ -227,6 +229,12 @@ impl ModalityIngest {
             .await
             .context("open new timeline")?;
 
+        let report_handlers = options
+            .attribute_handlers
+            .iter()
+            .map(AttributeHandler::to_cow_key)
+            .collect();
+
         Ok(Self {
             client,
             global_metadata: options.metadata,
@@ -235,10 +243,7 @@ impl ModalityIngest {
             span_names: HashMap::new(),
             run_id,
             timeline_map: TimelineLru::with_capacity(options.lru_cache_size),
-            report_handlers: DEFAULT_HANDLERS
-                .iter()
-                .map(|(k, v)| (k.to_string(), *v))
-                .collect(),
+            report_handlers,
             #[cfg(feature = "blocking")]
             rt: None,
         })
@@ -618,9 +623,9 @@ impl ModalityIngest {
 
         // First, provide all records to the user
         for (name, val) in records.drain() {
-            let (key, attrval) = match self.report_handlers.get(&name) {
-                Some(hdlr) => (hdlr)(name.into(), val, &self.run_id),
-                None => event_fallback(Cow::Owned(name), val),
+            let (key, attrval) = match self.report_handlers.get(name.as_str()) {
+                Some(hdlr) => (hdlr)(&name, val, &self.run_id),
+                None => event_fallback(name.into(), val),
             };
             pre_packed_attrs.insert(key, attrval);
         }

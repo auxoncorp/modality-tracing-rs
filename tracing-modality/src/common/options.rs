@@ -1,4 +1,5 @@
 use crate::UserTimelineInfo;
+use crate::attr_handlers::AttributeHandler;
 use modality_ingest_client::types::AttrVal;
 use once_cell::sync::Lazy;
 use std::collections::hash_map::DefaultHasher;
@@ -55,6 +56,7 @@ pub struct Options {
     pub(crate) server_addr: SocketAddr,
     pub(crate) timeline_identifier: fn() -> UserTimelineInfo,
     pub(crate) lru_cache_size: usize,
+    pub(crate) attribute_handlers: Vec<AttributeHandler>,
 }
 
 impl Options {
@@ -67,6 +69,7 @@ impl Options {
             server_addr,
             timeline_identifier: thread_timeline,
             lru_cache_size: 64,
+            attribute_handlers: AttributeHandler::default_handlers(),
         }
     }
 
@@ -127,6 +130,20 @@ impl Options {
     /// A chainable version of [set_lru_cache_size](Self::set_lru_cache_size).
     pub fn with_lru_cache_size(mut self, size: usize) -> Self {
         self.lru_cache_size = size;
+        self
+    }
+
+    /// Provide Attribute Handlers to convert from project specific event keys
+    /// and values into a Modality compatible format.
+    ///
+    /// Setting the attribute handlers overrides the default set of attribute
+    /// handlers. For more information, see the [`attr_handlers` module](crate::attr_handlers).
+    pub fn set_attr_handlers(&mut self, attribute_handlers: Vec<AttributeHandler>) {
+        self.attribute_handlers = attribute_handlers;
+    }
+    /// A chainable version of [set_attr_handlers](Self::set_attr_handlers).
+    pub fn with_attr_handlers(mut self, attribute_handlers: Vec<AttributeHandler>) -> Self {
+        self.attribute_handlers = attribute_handlers;
         self
     }
 

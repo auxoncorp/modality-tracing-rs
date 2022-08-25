@@ -12,7 +12,12 @@ use modality_ingest_client::{
     types::{AttrKey, AttrVal, BigInt, LogicalTime, Nanoseconds, Uuid},
     IngestError as SdkIngestError,
 };
-use std::{borrow::Cow, collections::HashMap, num::NonZeroU64, time::Duration};
+use std::{
+    borrow::Cow,
+    collections::{hash_map::Entry, HashMap},
+    num::NonZeroU64,
+    time::Duration,
+};
 use thiserror::Error;
 use tokio::{
     select,
@@ -606,49 +611,12 @@ impl ModalityIngest {
         mut records: RecordMap,
         tick: Duration,
     ) -> Result<(), IngestError> {
-        let mut pre_packed_attrs: HashMap<Cow<str>, AttrVal> = HashMap::new();
+        // We create a "pre packed attrs" to make it easier to quickly determine
+        // if the user has provided
+        let mut pre_packed_attrs: HashMap<Cow<str>, AttrVal> =
+            HashMap::with_capacity(records.len());
 
-        // First, pre-fill the attributes with contents from the tracing metadata.
-        // This may be later overridden by user contents.
-        //
-        // TODO(AJM): Do we want to move these AFTER, and check if they already exist,
-        // to avoid the cost of processing something we may throw away?
-        pre_packed_attrs.insert(Cow::Borrowed("event.name"), metadata.name().into());
-        pre_packed_attrs.insert(
-            Cow::Borrowed("event.severity"),
-            format!("{}", metadata.level()).to_lowercase().into(),
-        );
-        if let Some(mod_path) = metadata.module_path() {
-            pre_packed_attrs.insert(Cow::Borrowed("event.source.module"), mod_path.into());
-        }
-        if let Some(file) = metadata.file() {
-            pre_packed_attrs.insert(Cow::Borrowed("event.source.file"), file.into());
-        }
-        if let Some(line) = metadata.line() {
-            pre_packed_attrs.insert(Cow::Borrowed("event.source.line"), (line as i64).into());
-        }
-        if let Ok(duration_since_epoch) =
-            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
-        {
-            let duration_since_epoch_in_nanos_res: Result<u64, _> =
-                duration_since_epoch.as_nanos().try_into();
-            if let Ok(duration_since_epoch_in_nanos) = duration_since_epoch_in_nanos_res {
-                pre_packed_attrs.insert(
-                    Cow::Borrowed("event.timestamp"),
-                    AttrVal::Timestamp(Nanoseconds::from(duration_since_epoch_in_nanos)),
-                );
-            }
-        }
-
-        // only record tick directly during the first ~5.8 centuries this program is running
-        if let Ok(tick) = TryInto::<u64>::try_into(tick.as_nanos()) {
-            pre_packed_attrs.insert(
-                Cow::Borrowed("event.internal.rs.tick"),
-                AttrVal::LogicalTime(LogicalTime::unary(tick)),
-            );
-        }
-
-        // Then, provide all records to the user
+        // First, provide all records to the user
         for (name, val) in records.drain() {
             let (key, attrval) = match self.report_handlers.get(&name) {
                 Some(hdlr) => (hdlr)(name.into(), val, &self.run_id),
@@ -657,6 +625,68 @@ impl ModalityIngest {
             pre_packed_attrs.insert(key, attrval);
         }
 
+        // Then, if any of the expected keys are NOT provided by the user,
+        // we attempt to fill them from other sources of data, such as tracing
+        // metadata or system information.
+
+        /// If the given `name` does not exist in `ppa`, then the function `f`
+        /// will be called to insert it iff the function `f` returns a `Some`
+        /// value.
+        #[inline(always)]
+        fn attr_adder_cond<F: FnOnce() -> Option<AttrVal>>(
+            name: &'static str,
+            ppa: &mut HashMap<Cow<str>, AttrVal>,
+            f: F,
+        ) {
+            let bname = Cow::Borrowed(name);
+            if let Entry::Vacant(e) = ppa.entry(bname) {
+                if let Some(val) = f() {
+                    e.insert(val);
+                }
+            }
+        }
+        let cb = Cow::Borrowed;
+        let ppa = &mut pre_packed_attrs;
+
+        // These cannot fail
+        ppa.entry(cb("event.name"))
+            .or_insert_with(|| metadata.name().into());
+        ppa.entry(cb("event.severity"))
+            .or_insert_with(|| format!("{}", metadata.level()).to_lowercase().into());
+
+        // These can fail
+        attr_adder_cond("event.source.module", ppa, || {
+            metadata.module_path().map(Into::into)
+        });
+        attr_adder_cond("event.source.file", ppa, || metadata.file().map(Into::into));
+        attr_adder_cond("event.source.line", ppa, || {
+            metadata.line().map(|l| (l as i64).into())
+        });
+        attr_adder_cond("event.internal.rs.tick", ppa, || {
+            let delta: u64 = tick.as_nanos().try_into().ok()?;
+            Some(AttrVal::LogicalTime(LogicalTime::unary(delta)))
+        });
+        attr_adder_cond("event.timestamp", ppa, || {
+            let delta: u64 = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .ok()?
+                .as_nanos()
+                .try_into()
+                .ok()?;
+
+            Some(AttrVal::Timestamp(Nanoseconds::from(delta)))
+        });
+
+        // Make sure there is enough room in `packed_attrs` for the to-be-added
+        // items, so we don't need to realloc more than once
+        let cur_cap = packed_attrs.capacity();
+        let cur_len = packed_attrs.len();
+        let ppa_len = pre_packed_attrs.len();
+        if let Some(needed) = (cur_len + ppa_len).checked_sub(cur_cap) {
+            packed_attrs.reserve(needed);
+        }
+
+        // Move everything from PPA to PA
         for (key, val) in pre_packed_attrs.drain() {
             let attr_key = self.get_or_create_event_attr_key(key.into()).await?;
             packed_attrs.push((attr_key, val));

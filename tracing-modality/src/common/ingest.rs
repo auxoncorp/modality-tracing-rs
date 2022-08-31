@@ -6,8 +6,11 @@ use crate::{
 };
 use anyhow::Context;
 use modality_ingest_client::{
-    client::{BoundTimelineState, IngestClient},
-    types::{AttrKey, AttrVal, BigInt, LogicalTime, Nanoseconds, Uuid},
+    // TODO: use old misleading name until #23 lands to not create merge conflict headache
+    protocol::InternedAttrKey as AttrKey,
+    types::{AttrVal, BigInt, LogicalTime, Nanoseconds, Uuid},
+    BoundTimelineState,
+    IngestClient,
     IngestError as SdkIngestError,
 };
 use once_cell::sync::Lazy;
@@ -523,7 +526,7 @@ impl ModalityIngest {
 
         let interned_key = self
             .client
-            .attr_key(key.clone())
+            .declare_attr_key(key.clone())
             .await
             .context("define timeline attr key")?;
 
@@ -545,7 +548,7 @@ impl ModalityIngest {
 
         let interned_key = self
             .client
-            .attr_key(key.clone())
+            .declare_attr_key(key.clone())
             .await
             .context("define event attr key")?;
 
@@ -719,14 +722,12 @@ impl ModalityIngest {
     }
 }
 
-// `TracingValue` is `#[nonexhaustive]`, returns `None` if they add a type we don't handle and
-// fail to serialize it as a stringified json value
 fn tracing_value_to_attr_val(value: TracingValue) -> AttrVal {
     match value {
-        TracingValue::String(s) => AttrVal::String(s),
-        TracingValue::F64(n) => AttrVal::Float(n),
-        TracingValue::I64(n) => AttrVal::Integer(n),
-        TracingValue::U64(n) => BigInt::new_attr_val(n.into()),
-        TracingValue::Bool(b) => AttrVal::Bool(b),
+        TracingValue::String(s) => s.into(),
+        TracingValue::F64(n) => n.into(),
+        TracingValue::I64(n) => n.into(),
+        TracingValue::U64(n) => (n as i128).into(),
+        TracingValue::Bool(b) => b.into(),
     }
 }

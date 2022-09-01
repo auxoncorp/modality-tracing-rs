@@ -2,7 +2,7 @@ use rand::{thread_rng, Rng};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::thread::{Builder, JoinHandle};
 use tracing::{info, info_span};
-use tracing_modality::blocking::{timeline_id, TimelineId, TracingModality};
+use tracing_modality::{blocking::TracingModality, timeline_id};
 
 const THREADS: usize = 2;
 
@@ -13,7 +13,7 @@ enum Message {
 struct Job {
     nonce: u32,
     num: u32,
-    timeline_id: TimelineId,
+    timeline_id: u64,
 }
 
 fn main() {
@@ -41,8 +41,8 @@ fn main() {
                         match msg {
                             Message::Data(job) => {
                                 info!(
-                                    interaction.remote_nonce=job.nonce,
-                                    interaction.remote_timeline_id=?job.timeline_id.get_raw(),
+                                    interaction.remote_nonce = job.nonce,
+                                    interaction.remote_timeline_id = job.timeline_id,
                                     job.num,
                                     "received",
                                 );
@@ -53,12 +53,10 @@ fn main() {
                                     foo = "bar"
                                 );
 
-                                let result = comp_span.in_scope(|| {
-                                    job.num * 2
-                                });
+                                let result = comp_span.in_scope(|| job.num * 2);
                                 //let nonce = job.nonce + THREADS as u32;
                                 let nonce = job.nonce;
-                                info!(nonce = nonce, source = ?timeline_id.get_raw(), result, "sending");
+                                info!(nonce = nonce, source = timeline_id, result, "sending");
                                 term_tx
                                     .send(Message::Data(Job {
                                         nonce,
@@ -85,7 +83,7 @@ fn main() {
             nonce = i,
             worker = target,
             input = start,
-            source = ?timeline_id.get_raw(),
+            source = timeline_id,
             "sending",
         );
         tx_chans[target]
@@ -102,8 +100,8 @@ fn main() {
         match result {
             Message::Data(job) => {
                 info!(
-                    interaction.remote_nonce=job.nonce,
-                    interaction.remote_timeline_id=?job.timeline_id.get_raw(),
+                    interaction.remote_nonce = job.nonce,
+                    interaction.remote_timeline_id = job.timeline_id,
                     job.num,
                     "result",
                 );

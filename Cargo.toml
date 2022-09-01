@@ -5,3 +5,8 @@ members = [
     "tracing-serde-modality-ingest",
     "tracing-serde-subscriber",
 ]
+
+# TODO(AJM): Work around mismatched UUID version
+[patch.crates-io.modality-ingest-client]
+git = "https://github.com/auxoncorp/modality-sdk"
+rev = "4a3b9e3cca08e8225e084f9e8409e818646589ec"

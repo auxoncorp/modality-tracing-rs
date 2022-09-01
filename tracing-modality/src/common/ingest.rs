@@ -1,7 +1,9 @@
 pub use modality_ingest_client::types::TimelineId;
 
 use crate::{
+    attr_handlers::{event_fallback, AttributeHandler, HandlerFunc},
     layer::{RecordMap, TracingValue},
+    timeline_lru::TimelineLru,
     Options,
 };
 use anyhow::Context;
@@ -10,8 +12,12 @@ use modality_ingest_client::{
     types::{AttrKey, AttrVal, BigInt, LogicalTime, Nanoseconds, Uuid},
     IngestError as SdkIngestError,
 };
-use once_cell::sync::Lazy;
-use std::{collections::HashMap, num::NonZeroU64, time::Duration};
+use std::{
+    borrow::Cow,
+    collections::{hash_map::Entry, HashMap},
+    num::NonZeroU64,
+    time::Duration,
+};
 use thiserror::Error;
 use tokio::{
     select,
@@ -26,10 +32,6 @@ use std::thread::{self, JoinHandle};
 use tokio::runtime::Runtime;
 #[cfg(feature = "async")]
 use tokio::task;
-
-thread_local! {
-    static THREAD_TIMELINE_ID: Lazy<TimelineId> = Lazy::new(TimelineId::allocate);
-}
 
 #[derive(Debug, Error)]
 pub enum ConnectError {
@@ -53,24 +55,18 @@ pub enum IngestError {
     UnexpectedFailure(#[from] anyhow::Error),
 }
 
-pub(crate) fn current_timeline() -> TimelineId {
-    THREAD_TIMELINE_ID.with(|id| **id)
-}
-
 pub(crate) type SpanId = NonZeroU64;
 
 #[derive(Debug)]
 pub(crate) struct WrappedMessage {
     pub message: Message,
     pub tick: Duration,
-    pub timeline: TimelineId,
+    pub timeline_name: String,
+    pub user_timeline_id: u64,
 }
 
 #[derive(Debug)]
 pub(crate) enum Message {
-    NewTimeline {
-        name: String,
-    },
     NewSpan {
         id: SpanId,
         metadata: &'static Metadata<'static>,
@@ -174,6 +170,12 @@ pub(crate) struct ModalityIngest {
     event_keys: HashMap<String, AttrKey>,
     timeline_keys: HashMap<String, AttrKey>,
     span_names: HashMap<NonZeroU64, String>,
+    run_id: Uuid,
+    timeline_map: TimelineLru,
+
+    // NOTE: We use `Cow<'static, str>` to allow users to provide a String OR a `&'static str`
+    // to use as the key
+    report_handlers: HashMap<Cow<'static, str>, HandlerFunc>,
 
     #[cfg(feature = "blocking")]
     rt: Option<Runtime>,
@@ -195,11 +197,15 @@ impl ModalityIngest {
             })
     }
 
-    pub(crate) async fn async_connect(options: Options) -> Result<Self, ConnectError> {
+    pub(crate) async fn async_connect(mut options: Options) -> Result<Self, ConnectError> {
         let url = url::Url::parse(&format!("modality-ingest://{}/", options.server_addr)).unwrap();
         let unauth_client = IngestClient::connect(&url, false)
             .await
             .context("init ingest client")?;
+
+        // TODO(AJM): Does this NEED to be in the global metadata? The old code did this.
+        let run_id = Uuid::new_v4();
+        options.add_metadata("run_id", run_id.to_string());
 
         let auth_key = options.auth.ok_or(ConnectError::AuthRequired)?;
         let client = unauth_client
@@ -209,11 +215,25 @@ impl ModalityIngest {
 
         // open a timeline for the current thread because we need to open something to make the
         // types work
-        let timeline_id = current_timeline();
+        //
+        // TODO(AJM): Grumble grumble, this is partially duplicating the work of `bind_user_timeline()`,
+        // and also not actually registering the metadata for this timeline. Since this is our worker
+        // thread, and we will never produce tracing information that is sent to modality, it is probably
+        // fine. If we do at a later time, it will then be registered via the actual call to
+        // `bind_user_timeline()`.
+        let user_id = (options.timeline_identifier)().user_id;
+        let timeline_id = uuid::Uuid::new_v5(&run_id, &user_id.to_ne_bytes()).into();
+
         let client = client
             .open_timeline(timeline_id)
             .await
             .context("open new timeline")?;
+
+        let report_handlers = options
+            .attribute_handlers
+            .iter()
+            .map(AttributeHandler::as_cow_key)
+            .collect();
 
         Ok(Self {
             client,
@@ -221,6 +241,9 @@ impl ModalityIngest {
             event_keys: HashMap::new(),
             timeline_keys: HashMap::new(),
             span_names: HashMap::new(),
+            run_id,
+            timeline_map: TimelineLru::with_capacity(options.lru_cache_size),
+            report_handlers,
             #[cfg(feature = "blocking")]
             rt: None,
         })
@@ -289,27 +312,37 @@ impl ModalityIngest {
         let _ = self.client.flush().await;
     }
 
-    async fn handle_packet(&mut self, message: WrappedMessage) -> Result<(), IngestError> {
-        let WrappedMessage {
-            message,
-            tick,
-            timeline,
-        } = message;
-
-        if self.client.bound_timeline() != timeline {
-            self.client
-                .open_timeline(timeline)
-                .await
-                .context("open new timeline")?;
-        }
-
-        match message {
-            Message::NewTimeline { name } => {
-                let mut timeline_metadata = self.global_metadata.clone();
-
-                if !timeline_metadata.iter().any(|(k, _v)| k == "name") {
-                    timeline_metadata.push(("timeline.name".to_string(), name.into()));
+    /// Ensures the reported user timeline is the currently open client timeline.
+    ///
+    /// * If this is a new`*` timeline, we will first register its metadata,
+    ///     and open the timeline.
+    /// * If this is NOT a new timeline, but not the current timeline,
+    ///     we will open it.
+    /// * If this is already the current timeline, nothing will be done.
+    ///
+    /// `*`: In some cases, we MAY end up re-registering the metadata for a timeline,
+    /// if the timeline has not been recently used.
+    async fn bind_user_timeline(&mut self, name: String, user_id: u64) -> Result<(), IngestError> {
+        match self.timeline_map.query(user_id) {
+            Ok(timeline_id) => {
+                if self.client.bound_timeline() != timeline_id {
+                    self.client
+                        .open_timeline(timeline_id)
+                        .await
+                        .context("open new timeline")?;
                 }
+            }
+            Err(token) => {
+                let timeline_id = uuid::Uuid::new_v5(&self.run_id, &user_id.to_ne_bytes()).into();
+
+                self.client
+                    .open_timeline(timeline_id)
+                    .await
+                    .context("open new timeline")?;
+
+                // Register the metadata of the new* timeline ID
+                let mut timeline_metadata = self.global_metadata.clone();
+                timeline_metadata.push(("timeline.name".to_string(), name.into()));
 
                 for (key, value) in timeline_metadata {
                     let timeline_key_name = self
@@ -322,7 +355,28 @@ impl ModalityIngest {
                         .await
                         .context("apply timeline metadata")?;
                 }
+
+                // Success, now add to the map
+                self.timeline_map.insert(user_id, timeline_id, token);
             }
+        };
+
+        Ok(())
+    }
+
+    async fn handle_packet(&mut self, message: WrappedMessage) -> Result<(), IngestError> {
+        let WrappedMessage {
+            message,
+            tick,
+            timeline_name,
+            user_timeline_id,
+        } = message;
+
+        // Ensure that the user reported timeline ID is active.
+        self.bind_user_timeline(timeline_name, user_timeline_id)
+            .await?;
+
+        match message {
             Message::NewSpan {
                 id,
                 metadata,
@@ -533,6 +587,9 @@ impl ModalityIngest {
     }
 
     async fn get_or_create_event_attr_key(&mut self, key: String) -> Result<AttrKey, IngestError> {
+        // TODO(AJM): This check is redundant everywhere AFAICT?
+        // Should we make a NewType that guarantees the string starts with
+        // 'event.'?
         let key = if key.starts_with("event.") {
             key
         } else {
@@ -561,158 +618,85 @@ impl ModalityIngest {
         mut records: RecordMap,
         tick: Duration,
     ) -> Result<(), IngestError> {
-        let name = records
-            .remove("name")
-            .or_else(|| records.remove("message"))
-            .map(tracing_value_to_attr_val)
-            .unwrap_or_else(|| metadata.name().into());
-        packed_attrs.push((
-            self.get_or_create_event_attr_key("event.name".to_string())
-                .await?,
-            name,
-        ));
+        // We create a "pre packed attrs" to make it easier to quickly determine
+        // if the user has provided
+        let mut pre_packed_attrs: HashMap<Cow<str>, AttrVal> =
+            HashMap::with_capacity(records.len());
 
-        let severity = records
-            .remove("severity")
-            .map(tracing_value_to_attr_val)
-            .unwrap_or_else(|| format!("{}", metadata.level()).to_lowercase().into());
-        packed_attrs.push((
-            self.get_or_create_event_attr_key("event.severity".to_string())
-                .await?,
-            severity,
-        ));
-
-        let module_path = records
-            .remove("source.module")
-            .map(tracing_value_to_attr_val)
-            .or_else(|| metadata.module_path().map(|mp| mp.into()));
-        if let Some(module_path) = module_path {
-            packed_attrs.push((
-                self.get_or_create_event_attr_key("event.source.module".to_string())
-                    .await?,
-                module_path,
-            ));
-        }
-
-        let source_file = records
-            .remove("source.file")
-            .map(tracing_value_to_attr_val)
-            .or_else(|| metadata.file().map(|mp| mp.into()));
-        if let Some(source_file) = source_file {
-            packed_attrs.push((
-                self.get_or_create_event_attr_key("event.source.file".to_string())
-                    .await?,
-                source_file,
-            ));
-        }
-
-        let source_line = records
-            .remove("source.line")
-            .map(tracing_value_to_attr_val)
-            .or_else(|| metadata.line().map(|mp| (mp as i64).into()));
-        if let Some(source_line) = source_line {
-            packed_attrs.push((
-                self.get_or_create_event_attr_key("event.source.line".to_string())
-                    .await?,
-                source_line,
-            ));
-        }
-
-        // only record tick directly during the first ~5.8 centuries this program is running
-        if let Ok(tick) = TryInto::<u64>::try_into(tick.as_nanos()) {
-            packed_attrs.push((
-                self.get_or_create_event_attr_key("event.internal.rs.tick".to_string())
-                    .await?,
-                AttrVal::LogicalTime(LogicalTime::unary(tick)),
-            ));
-        }
-
-        // handle manually to type the AttrVal correctly
-        let remote_timeline_id = records
-            .remove("interaction.remote_timeline_id")
-            .map(tracing_value_to_attr_val);
-        if let Some(attrval) = remote_timeline_id {
-            let remote_timeline_id = if let AttrVal::String(string) = attrval {
-                use std::str::FromStr;
-                if let Ok(uuid) = Uuid::from_str(&string) {
-                    AttrVal::TimelineId(Box::new(uuid.into()))
-                } else {
-                    AttrVal::String(string)
-                }
-            } else {
-                attrval
+        // First, provide all records to the user
+        for (name, val) in records.drain() {
+            let (key, attrval) = match self.report_handlers.get(name.as_str()) {
+                Some(hdlr) => (hdlr)(&name, val, &self.run_id),
+                None => event_fallback(name.into(), val),
             };
-
-            packed_attrs.push((
-                self.get_or_create_event_attr_key("event.interaction.remote_timeline_id".into())
-                    .await?,
-                remote_timeline_id,
-            ));
+            pre_packed_attrs.insert(key, attrval);
         }
 
-        // Manually retype the remote_timestamp
-        let remote_timestamp = records
-            .remove("interaction.remote_timestamp")
-            .map(tracing_value_to_attr_val);
-        if let Some(attrval) = remote_timestamp {
-            let remote_timestamp = match attrval {
-                AttrVal::Integer(i) if i >= 0 => AttrVal::Timestamp(Nanoseconds::from(i as u64)),
-                AttrVal::BigInt(i) if *i >= 0 && *i <= u64::MAX as i128 => {
-                    AttrVal::Timestamp(Nanoseconds::from(*i as u64))
+        // Then, if any of the expected keys are NOT provided by the user,
+        // we attempt to fill them from other sources of data, such as tracing
+        // metadata or system information.
+
+        /// If the given `name` does not exist in `ppa`, then the function `f`
+        /// will be called to insert it iff the function `f` returns a `Some`
+        /// value.
+        #[inline(always)]
+        fn attr_adder_cond<F: FnOnce() -> Option<AttrVal>>(
+            name: &'static str,
+            ppa: &mut HashMap<Cow<str>, AttrVal>,
+            f: F,
+        ) {
+            let bname = Cow::Borrowed(name);
+            if let Entry::Vacant(e) = ppa.entry(bname) {
+                if let Some(val) = f() {
+                    e.insert(val);
                 }
-                AttrVal::Timestamp(t) => AttrVal::Timestamp(t),
-                x => x,
-            };
-
-            packed_attrs.push((
-                self.get_or_create_event_attr_key("event.interaction.remote_timestamp".into())
-                    .await?,
-                remote_timestamp,
-            ));
-        }
-
-        // Manually retype the local timestamp
-        let local_timestamp = records.remove("timestamp").map(tracing_value_to_attr_val);
-        if let Some(attrval) = local_timestamp {
-            let remote_timestamp = match attrval {
-                AttrVal::Integer(i) if i >= 0 => AttrVal::Timestamp(Nanoseconds::from(i as u64)),
-                AttrVal::BigInt(i) if *i >= 0 && *i <= u64::MAX as i128 => {
-                    AttrVal::Timestamp(Nanoseconds::from(*i as u64))
-                }
-                AttrVal::Timestamp(t) => AttrVal::Timestamp(t),
-                x => x,
-            };
-
-            packed_attrs.push((
-                self.get_or_create_event_attr_key("event.timestamp".into())
-                    .await?,
-                remote_timestamp,
-            ));
-        } else if let Ok(duration_since_epoch) =
-            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
-        {
-            let duration_since_epoch_in_nanos_res: Result<u64, _> =
-                duration_since_epoch.as_nanos().try_into();
-            if let Ok(duration_since_epoch_in_nanos) = duration_since_epoch_in_nanos_res {
-                packed_attrs.push((
-                    self.get_or_create_event_attr_key("event.timestamp".into())
-                        .await?,
-                    AttrVal::Timestamp(Nanoseconds::from(duration_since_epoch_in_nanos)),
-                ));
             }
         }
+        let cb = Cow::Borrowed;
+        let ppa = &mut pre_packed_attrs;
 
-        // pack any remaining records
-        for (name, value) in records {
-            let attrval = tracing_value_to_attr_val(value);
+        // These cannot fail
+        ppa.entry(cb("event.name"))
+            .or_insert_with(|| metadata.name().into());
+        ppa.entry(cb("event.severity"))
+            .or_insert_with(|| format!("{}", metadata.level()).to_lowercase().into());
 
-            let key = if name.starts_with("event.") {
-                name.to_string()
-            } else {
-                format!("event.{}", name.as_str())
-            };
+        // These can fail
+        attr_adder_cond("event.source.module", ppa, || {
+            metadata.module_path().map(Into::into)
+        });
+        attr_adder_cond("event.source.file", ppa, || metadata.file().map(Into::into));
+        attr_adder_cond("event.source.line", ppa, || {
+            metadata.line().map(|l| (l as i64).into())
+        });
+        attr_adder_cond("event.internal.rs.tick", ppa, || {
+            let delta: u64 = tick.as_nanos().try_into().ok()?;
+            Some(AttrVal::LogicalTime(LogicalTime::unary(delta)))
+        });
+        attr_adder_cond("event.timestamp", ppa, || {
+            let delta: u64 = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .ok()?
+                .as_nanos()
+                .try_into()
+                .ok()?;
 
-            packed_attrs.push((self.get_or_create_event_attr_key(key).await?, attrval));
+            Some(AttrVal::Timestamp(Nanoseconds::from(delta)))
+        });
+
+        // Make sure there is enough room in `packed_attrs` for the to-be-added
+        // items, so we don't need to realloc more than once
+        let cur_cap = packed_attrs.capacity();
+        let cur_len = packed_attrs.len();
+        let ppa_len = pre_packed_attrs.len();
+        if let Some(needed) = (cur_len + ppa_len).checked_sub(cur_cap) {
+            packed_attrs.reserve(needed);
+        }
+
+        // Move everything from PPA to PA
+        for (key, val) in pre_packed_attrs.drain() {
+            let attr_key = self.get_or_create_event_attr_key(key.into()).await?;
+            packed_attrs.push((attr_key, val));
         }
 
         Ok(())
@@ -721,7 +705,7 @@ impl ModalityIngest {
 
 // `TracingValue` is `#[nonexhaustive]`, returns `None` if they add a type we don't handle and
 // fail to serialize it as a stringified json value
-fn tracing_value_to_attr_val(value: TracingValue) -> AttrVal {
+pub fn tracing_value_to_attr_val(value: TracingValue) -> AttrVal {
     match value {
         TracingValue::String(s) => AttrVal::String(s),
         TracingValue::F64(n) => AttrVal::Float(n),

@@ -1,7 +1,7 @@
 mod layer;
 
 pub use crate::ingest::ModalityIngestThreadHandle;
-pub use crate::{timeline_id, InitError, Options, TimelineId};
+pub use crate::{InitError, Options};
 pub use layer::ModalityLayer;
 
 use anyhow::Context as _;

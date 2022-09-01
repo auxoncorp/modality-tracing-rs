@@ -323,10 +323,22 @@ impl ModalityIngest {
     /// `*`: In some cases, we MAY end up re-registering the metadata for a timeline,
     /// if the timeline has not been recently used.
     async fn bind_user_timeline(&mut self, name: String, user_id: u64) -> Result<(), IngestError> {
-        let timeline_id = match self.timeline_map.query(user_id) {
-            Ok(tid) => tid,
+        match self.timeline_map.query(user_id) {
+            Ok(timeline_id) => {
+                if self.client.bound_timeline() != timeline_id {
+                    self.client
+                        .open_timeline(timeline_id)
+                        .await
+                        .context("open new timeline")?;
+                }
+            }
             Err(token) => {
                 let timeline_id = uuid::Uuid::new_v5(&self.run_id, &user_id.to_ne_bytes()).into();
+
+                self.client
+                    .open_timeline(timeline_id)
+                    .await
+                    .context("open new timeline")?;
 
                 // Register the metadata of the new* timeline ID
                 let mut timeline_metadata = self.global_metadata.clone();
@@ -346,18 +358,8 @@ impl ModalityIngest {
 
                 // Success, now add to the map
                 self.timeline_map.insert(user_id, timeline_id, token);
-
-                // And return the timeline
-                timeline_id
             }
         };
-
-        if self.client.bound_timeline() != timeline_id {
-            self.client
-                .open_timeline(timeline_id)
-                .await
-                .context("open new timeline")?;
-        }
 
         Ok(())
     }

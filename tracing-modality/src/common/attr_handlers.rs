@@ -56,8 +56,10 @@
 
 use std::borrow::Cow;
 
-use crate::{ingest::tracing_value_to_attr_val, layer::TracingValue};
-use modality_ingest_client::types::{AttrVal, Nanoseconds, TimelineId, Uuid};
+pub use crate::{ingest::tracing_value_to_attr_val, layer::TracingValue};
+pub use modality_ingest_client::types::AttrVal;
+
+use modality_ingest_client::types::{Nanoseconds, TimelineId, Uuid};
 
 /// A type alias for the signature required for attribute handlers
 pub type HandlerFunc =

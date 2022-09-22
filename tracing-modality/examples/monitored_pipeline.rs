@@ -140,7 +140,7 @@ pub struct MessageMetadata {
     nonce: Option<i64>,
 }
 
-#[derive(Copy, Clone, PartialEq, Debug)]
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
 #[repr(transparent)]
 pub struct NanosecondsSinceUnixEpoch(pub u64);
 impl NanosecondsSinceUnixEpoch {

@@ -10,7 +10,8 @@ use std::{
     collections::HashMap,
     fmt::Debug,
     num::NonZeroU64,
-    sync::atomic::{AtomicBool, AtomicU64, Ordering},
+    sync::atomic::{AtomicU64, Ordering},
+    sync::Once,
     thread,
     thread::LocalKey,
     time::Instant,
@@ -28,7 +29,6 @@ use tracing_subscriber::{
 
 static START: Lazy<Instant> = Lazy::new(Instant::now);
 static NEXT_SPAN_ID: AtomicU64 = AtomicU64::new(1);
-static WARN_LATCH: AtomicBool = AtomicBool::new(false);
 
 /// An ID for spans that we can use directly.
 #[derive(Copy, Clone, Debug)]
@@ -63,21 +63,14 @@ trait LayerCommon: LayerHandler {
         };
 
         if let Err(_e) = self.send(wrapped_message) {
-            // gets a single false across all application threads, atomically replacing with true
-            // only show warning on false, so we only warn once
-            //
-            // ordering doesn't matter, we don't care which thread prints if multiple try
-            let has_warned = WARN_LATCH
-                .compare_exchange(false, true, Ordering::Relaxed, Ordering::Relaxed)
-                .is_ok();
-
-            if !has_warned {
+            static WARN_LATCH: Once = Once::new();
+            WARN_LATCH.call_once(|| {
                 eprintln!(
                     "warning: attempted trace after tracing modality has stopped accepting \
                      messages, ensure spans from all threads have closed before calling \
                      `finish()`"
                 );
-            }
+            });
         }
     }
 

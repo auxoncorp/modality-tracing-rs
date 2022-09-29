@@ -1,6 +1,6 @@
 [package]
 name = "tracing-modality"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2021"
 description = "This crate provides a `tracing` `Layer` (and `Subscriber`) for emitting trace data to Auxon Modality"
 repository = "https://github.com/auxoncorp/modality-tracing-rs"

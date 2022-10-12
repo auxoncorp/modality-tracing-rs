@@ -1,3 +1,4 @@
+use rand::Rng;
 use std::error::Error;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -132,12 +133,15 @@ pub struct MeasurementMessage {
 /// Information about the source of the message
 pub struct MessageMetadata {
     /// When was this message from?
+    #[allow(unused)]
     timestamp: NanosecondsSinceUnixEpoch,
+
     /// Which tracing timeline was this from?
     timeline_id: TimelineId,
+
     /// A correlation nonce for precisely matching
     /// the source event related to this message.
-    nonce: Option<i64>,
+    nonce: i64,
 }
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
@@ -192,7 +196,6 @@ impl Component {
 
 mod producer {
     use super::*;
-    use rand::Rng;
     pub fn run_producer(
         consumer_tx: SyncSender<MeasurementMessage>,
         monitor_tx: Sender<HeartbeatMessage>,
@@ -259,7 +262,7 @@ mod producer {
             meta: MessageMetadata {
                 timestamp,
                 timeline_id,
-                nonce: Some(nonce),
+                nonce,
             },
         }) {
             tracing::warn!(
@@ -305,20 +308,11 @@ mod consumer {
             }
             match timed_recv_result {
                 Ok(msg) => {
-                    if let Some(nonce) = msg.meta.nonce {
-                        tracing::info!(
+                    tracing::info!(
                         sample = msg.sample,
                         interaction.remote_timeline_id = %msg.meta.timeline_id.get_raw(),
-                        interaction.remote_timestamp = msg.meta.timestamp.0,
-                        interaction.remote_nonce=nonce,
+                        interaction.remote_nonce= msg.meta.nonce,
                         "Received measurement message");
-                    } else {
-                        tracing::info!(
-                        sample = msg.sample,
-                        interaction.remote_timeline_id = %msg.meta.timeline_id.get_raw(),
-                        interaction.remote_timestamp = msg.meta.timestamp.0,
-                        "Received measurement message");
-                    }
 
                     expensive_task(msg.sample, &is_shutdown_requested);
 
@@ -381,7 +375,7 @@ mod monitor {
                     tracing::info!(
                         source = msg.source.name(),
                         interaction.remote_timeline_id = %msg.meta.timeline_id.get_raw(),
-                        interaction.remote_timestamp = msg.meta.timestamp.0,
+                        interaction.remote_nonce = msg.meta.nonce,
                         "Received heartbeat message");
                     let prev = component_to_last_rx.insert(msg.source, Instant::now());
                     if prev.is_none() {
@@ -433,8 +427,11 @@ fn send_heartbeat(
             return;
         }
     };
+
+    let nonce: i64 = rand::thread_rng().gen();
     tracing::info!(
         destination = Component::Monitor.name(),
+        nonce,
         "Sending heartbeat message"
     );
     if let Err(_e) = monitor_tx.send(HeartbeatMessage {
@@ -442,7 +439,7 @@ fn send_heartbeat(
         meta: MessageMetadata {
             timestamp,
             timeline_id,
-            nonce: None,
+            nonce,
         },
     }) {
         tracing::warn!("Failed to send heartbeat message");

@@ -41,7 +41,7 @@ pub enum ConnectError {
     AuthRequired,
     /// Auth was provided, but was not accepted by modality
     #[error("Authenticating with the provided auth failed")]
-    AuthFailed(SdkIngestError),
+    AuthFailed(#[from] SdkIngestError),
     /// Errors that it is assumed there is no way to handle without human intervention, meant for
     /// consumers to just print and carry on or panic.
     #[error(transparent)]

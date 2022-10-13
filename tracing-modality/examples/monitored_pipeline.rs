@@ -1,4 +1,4 @@
-use rand::Rng;
+use rand::prelude::*;
 use std::error::Error;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -26,6 +26,9 @@ fn main() {
 
         modality_ingest_handle
     };
+
+    // Constant seed so we get predictable output, which matches the docs.
+    let mut rng = rand::rngs::StdRng::seed_from_u64(42);
 
     // Enable signal handling for convenient process termination.
     let shutdown_requested = Arc::new(AtomicBool::new(false));
@@ -72,6 +75,7 @@ fn main() {
 
     let monitor_tx_for_producer = monitor_tx.clone();
     let is_shutdown_requested_for_producer = is_shutdown_requested.clone();
+    let producer_rng = StdRng::from_rng(&mut rng).unwrap();
     let producer_join_handle = thread::Builder::new()
         .name(Component::Producer.name().into())
         .spawn(|| {
@@ -79,12 +83,14 @@ fn main() {
                 consumer_tx,
                 monitor_tx_for_producer,
                 is_shutdown_requested_for_producer,
+                producer_rng,
             )
         })
         .expect("Could not start producer");
 
     let monitor_tx_for_consumer = monitor_tx;
     let is_shutdown_requested_for_consumer = is_shutdown_requested.clone();
+    let consumer_rng = StdRng::from_rng(&mut rng).unwrap();
     let consumer_join_handle = thread::Builder::new()
         .name(Component::Consumer.name().into())
         .spawn(|| {
@@ -92,6 +98,7 @@ fn main() {
                 consumer_rx,
                 monitor_tx_for_consumer,
                 is_shutdown_requested_for_consumer,
+                consumer_rng,
             )
         })
         .expect("Could not start consumer");
@@ -200,11 +207,11 @@ mod producer {
         consumer_tx: SyncSender<MeasurementMessage>,
         monitor_tx: Sender<HeartbeatMessage>,
         is_shutdown_requested: impl Fn() -> bool,
+        mut rng: impl Rng,
     ) {
         tracing::info!("Starting up");
 
         let timeline_id = timeline_id();
-        let mut rng = rand::thread_rng();
 
         // This is the imaginary physically-derived value that the producer is tracking and sampling
         let mut measurement: i8 = 0;
@@ -217,13 +224,13 @@ mod producer {
             send_measurement(sample, &consumer_tx, timeline_id, rng.gen());
 
             if i % 5 == 0 {
-                send_heartbeat(&monitor_tx, Component::Producer, timeline_id);
+                send_heartbeat(&monitor_tx, Component::Producer, timeline_id, &mut rng);
             }
             thread::sleep(Duration::from_millis(100));
         }
     }
 
-    fn update_and_sample_measurement<R: Rng>(rng: &mut R, measurement: &mut i8) -> i8 {
+    fn update_and_sample_measurement(rng: &mut impl Rng, measurement: &mut i8) -> i8 {
         let update: i8 = rng.gen_range(-1..=1);
         *measurement = measurement.wrapping_add(update);
         let sample = *measurement;
@@ -292,6 +299,7 @@ mod consumer {
         consumer_rx: Receiver<MeasurementMessage>,
         monitor_tx: Sender<HeartbeatMessage>,
         is_shutdown_requested: impl Fn() -> bool,
+        mut rng: impl Rng,
     ) {
         tracing::info!("Starting up");
 
@@ -317,7 +325,7 @@ mod consumer {
                     expensive_task(msg.sample, &is_shutdown_requested);
 
                     if last_heartbeat_tx.elapsed() > HEARTBEAT_INTERVAL {
-                        send_heartbeat(&monitor_tx, Component::Consumer, timeline_id);
+                        send_heartbeat(&monitor_tx, Component::Consumer, timeline_id, &mut rng);
                         last_heartbeat_tx = Instant::now();
                     }
                 }
@@ -416,6 +424,7 @@ fn send_heartbeat(
     // What is the timeline id of the component sending the heartbeat?
     // Instead of passing this around, for a small cost, one could use the timeline_id() fn
     timeline_id: TimelineId,
+    rng: &mut impl Rng,
 ) {
     let timestamp = match NanosecondsSinceUnixEpoch::now() {
         Ok(timestamp) => timestamp,
@@ -428,7 +437,7 @@ fn send_heartbeat(
         }
     };
 
-    let nonce: i64 = rand::thread_rng().gen();
+    let nonce: i64 = rng.gen();
     tracing::info!(
         destination = Component::Monitor.name(),
         nonce,

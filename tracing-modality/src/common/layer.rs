@@ -145,7 +145,7 @@ where
 
         let mut visitor = RecordMapBuilder::new();
         attrs.record(&mut visitor);
-        let records = visitor.values();
+        let records = visitor.values_with_timestamp();
         let metadata = attrs.metadata();
 
         let msg = ingest::Message::NewSpan {
@@ -165,7 +165,7 @@ where
 
         let msg = ingest::Message::Record {
             span: local_id.0,
-            records: visitor.values(),
+            records: visitor.values_with_timestamp(),
         };
 
         self.handle_message(msg)
@@ -189,7 +189,7 @@ where
 
         let msg = ingest::Message::Event {
             metadata: event.metadata(),
-            records: visitor.values(),
+            records: visitor.values_with_timestamp(),
         };
 
         self.handle_message(msg)
@@ -249,8 +249,25 @@ struct RecordMapBuilder {
 }
 
 impl RecordMapBuilder {
-    fn values(self) -> RecordMap {
-        self.record_map
+    /// Extract the underlying RecordMap.
+    /// Guarantees that the "timestamp" entry is populated with some value
+    /// if the system time is within u64::MAX nanoseconds after UNIX_EPOCH,
+    /// or if the user provided any explicit "timestamp" field.
+    fn values_with_timestamp(self) -> RecordMap {
+        let mut rm = self.record_map;
+        if !rm.contains_key("timestamp") {
+            if let Some(duration_since_epoch_in_nanos) = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .ok()
+                .and_then(|d| d.as_nanos().try_into().ok())
+            {
+                rm.insert(
+                    "timestamp".into(),
+                    TracingValue::U64(duration_since_epoch_in_nanos),
+                );
+            }
+        }
+        rm
     }
 }
 

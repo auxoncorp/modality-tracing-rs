@@ -61,7 +61,7 @@ difference in the exact data model each uses. This section describes how
 ### Modality Timelines
 
 In Modality, a timeline is a linear sequence of events. This library represents
-each OS thread as a seperate timeline.
+each OS thread as a separate timeline.
 
 To record interactions between threads the timeline ID of the remote thread
 must be known. Each thread can access its own timeline ID with the
@@ -87,10 +87,10 @@ This is how each piece of metadata is mapped into modality:
 ### `tracing` Fields
 
 Fields are the structured data you define when using an event or span macro.
-They consist of a key that takes the form of a dot sperated string and a value
+They consist of a key that takes the form of a dot separated string and a value
 of one of `tracing`'s supported types.
 
-All fields are mapped directly as is to `event.*`, excect fields prefixed with
+All fields are mapped directly as is to `event.*`, except fields prefixed with
 `modality.` which are mapped to the datasource specific namespace
 `event.internal.rs.*`. Fields manually set will overwrite any any default
 values set by metadata, if present.

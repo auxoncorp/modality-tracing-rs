@@ -694,6 +694,8 @@ impl ModalityIngest {
         } else if let Ok(duration_since_epoch) =
             std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
         {
+            // Nanos since unix epoch in 2022:  1_666_279_652_000_000_000
+            // Nanos that can fit in a u64:    18_446_744_073_709_551_615
             let duration_since_epoch_in_nanos_res: Result<u64, _> =
                 duration_since_epoch.as_nanos().try_into();
             if let Ok(duration_since_epoch_in_nanos) = duration_since_epoch_in_nanos_res {

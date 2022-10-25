@@ -4,7 +4,9 @@ use crate::ingest;
 use crate::ingest::WrappedMessage;
 
 use duplicate::duplicate_item;
+use modality_ingest_client::types::Nanoseconds;
 use once_cell::sync::Lazy;
+use std::time::SystemTime;
 use std::{
     cell::Cell,
     collections::HashMap,
@@ -59,6 +61,13 @@ trait LayerCommon: LayerHandler {
         let wrapped_message = ingest::WrappedMessage {
             message,
             tick: START.elapsed(),
+            nanos_since_unix_epoch: SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .ok()
+                .and_then(|d| {
+                    let n: Option<u64> = d.as_nanos().try_into().ok();
+                    n.map(Nanoseconds::from)
+                }),
             timeline: self.local_metadata().with(|m| m.thread_timeline),
         };
 
@@ -98,6 +107,13 @@ trait LayerCommon: LayerHandler {
             let wrapped_message = ingest::WrappedMessage {
                 message,
                 tick: START.elapsed(),
+                nanos_since_unix_epoch: SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .ok()
+                    .and_then(|d| {
+                        let n: Option<u64> = d.as_nanos().try_into().ok();
+                        n.map(Nanoseconds::from)
+                    }),
                 timeline: self.local_metadata().with(|m| m.thread_timeline),
             };
 
@@ -145,7 +161,7 @@ where
 
         let mut visitor = RecordMapBuilder::new();
         attrs.record(&mut visitor);
-        let records = visitor.values_with_timestamp();
+        let records = visitor.values();
         let metadata = attrs.metadata();
 
         let msg = ingest::Message::NewSpan {
@@ -165,7 +181,7 @@ where
 
         let msg = ingest::Message::Record {
             span: local_id.0,
-            records: visitor.values_with_timestamp(),
+            records: visitor.values(),
         };
 
         self.handle_message(msg)
@@ -189,7 +205,7 @@ where
 
         let msg = ingest::Message::Event {
             metadata: event.metadata(),
-            records: visitor.values_with_timestamp(),
+            records: visitor.values(),
         };
 
         self.handle_message(msg)
@@ -250,24 +266,8 @@ struct RecordMapBuilder {
 
 impl RecordMapBuilder {
     /// Extract the underlying RecordMap.
-    /// Guarantees that the "timestamp" entry is populated with some value
-    /// if the system time is within u64::MAX nanoseconds after UNIX_EPOCH,
-    /// or if the user provided any explicit "timestamp" field.
-    fn values_with_timestamp(self) -> RecordMap {
-        let mut rm = self.record_map;
-        if !rm.contains_key("timestamp") {
-            if let Some(duration_since_epoch_in_nanos) = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .ok()
-                .and_then(|d| d.as_nanos().try_into().ok())
-            {
-                rm.insert(
-                    "timestamp".into(),
-                    TracingValue::U64(duration_since_epoch_in_nanos),
-                );
-            }
-        }
-        rm
+    fn values(self) -> RecordMap {
+        self.record_map
     }
 }
 

@@ -4,7 +4,9 @@ use crate::ingest;
 use crate::ingest::WrappedMessage;
 
 use duplicate::duplicate_item;
+use modality_ingest_client::types::Nanoseconds;
 use once_cell::sync::Lazy;
+use std::time::SystemTime;
 use std::{
     cell::Cell,
     collections::HashMap,
@@ -59,6 +61,13 @@ trait LayerCommon: LayerHandler {
         let wrapped_message = ingest::WrappedMessage {
             message,
             tick: START.elapsed(),
+            nanos_since_unix_epoch: SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .ok()
+                .and_then(|d| {
+                    let n: Option<u64> = d.as_nanos().try_into().ok();
+                    n.map(Nanoseconds::from)
+                }),
             timeline: self.local_metadata().with(|m| m.thread_timeline),
         };
 
@@ -98,6 +107,13 @@ trait LayerCommon: LayerHandler {
             let wrapped_message = ingest::WrappedMessage {
                 message,
                 tick: START.elapsed(),
+                nanos_since_unix_epoch: SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .ok()
+                    .and_then(|d| {
+                        let n: Option<u64> = d.as_nanos().try_into().ok();
+                        n.map(Nanoseconds::from)
+                    }),
                 timeline: self.local_metadata().with(|m| m.thread_timeline),
             };
 
@@ -249,6 +265,7 @@ struct RecordMapBuilder {
 }
 
 impl RecordMapBuilder {
+    /// Extract the underlying RecordMap.
     fn values(self) -> RecordMap {
         self.record_map
     }

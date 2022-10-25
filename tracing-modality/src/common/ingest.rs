@@ -66,6 +66,7 @@ pub(crate) type SpanId = NonZeroU64;
 pub(crate) struct WrappedMessage {
     pub message: Message,
     pub tick: Duration,
+    pub nanos_since_unix_epoch: Option<Nanoseconds>,
     pub timeline: TimelineId,
 }
 
@@ -296,6 +297,7 @@ impl ModalityIngest {
         let WrappedMessage {
             message,
             tick,
+            nanos_since_unix_epoch,
             timeline,
         } = message;
 
@@ -372,8 +374,14 @@ impl ModalityIngest {
                     span_id,
                 ));
 
-                self.pack_common_attrs(&mut packed_attrs, metadata, records, tick)
-                    .await?;
+                self.pack_common_attrs(
+                    &mut packed_attrs,
+                    metadata,
+                    records,
+                    tick,
+                    nanos_since_unix_epoch,
+                )
+                .await?;
 
                 self.client
                     .event(tick.as_nanos(), packed_attrs)
@@ -410,8 +418,14 @@ impl ModalityIngest {
                     kind,
                 ));
 
-                self.pack_common_attrs(&mut packed_attrs, metadata, records, tick)
-                    .await?;
+                self.pack_common_attrs(
+                    &mut packed_attrs,
+                    metadata,
+                    records,
+                    tick,
+                    nanos_since_unix_epoch,
+                )
+                .await?;
 
                 self.client
                     .event(tick.as_nanos(), packed_attrs)
@@ -563,6 +577,7 @@ impl ModalityIngest {
         metadata: &'a Metadata<'static>,
         mut records: RecordMap,
         tick: Duration,
+        maybe_nanos_since_unix_epoch: Option<Nanoseconds>,
     ) -> Result<(), IngestError> {
         let name = records
             .remove("name")
@@ -691,18 +706,12 @@ impl ModalityIngest {
                     .await?,
                 remote_timestamp,
             ));
-        } else if let Ok(duration_since_epoch) =
-            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
-        {
-            let duration_since_epoch_in_nanos_res: Result<u64, _> =
-                duration_since_epoch.as_nanos().try_into();
-            if let Ok(duration_since_epoch_in_nanos) = duration_since_epoch_in_nanos_res {
-                packed_attrs.push((
-                    self.get_or_create_event_attr_key("event.timestamp".into())
-                        .await?,
-                    AttrVal::Timestamp(Nanoseconds::from(duration_since_epoch_in_nanos)),
-                ));
-            }
+        } else if let Some(nanos_since_unix_epoch) = maybe_nanos_since_unix_epoch {
+            packed_attrs.push((
+                self.get_or_create_event_attr_key("event.timestamp".into())
+                    .await?,
+                AttrVal::Timestamp(nanos_since_unix_epoch),
+            ));
         }
 
         // pack any remaining records

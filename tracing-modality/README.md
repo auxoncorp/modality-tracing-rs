@@ -75,7 +75,7 @@ for the remote thread to record the interaction on its own timeline.
 
 This is how each piece of metadata is mapped into modality:
 
-* `message` or `name` -> `event.name`
+* `name` -> `event.name`[^1]
 * `level` -> `event.severity`
 * `module_path` -> `event.source.module`
 * `file` -> `event.source.file`
@@ -83,6 +83,9 @@ This is how each piece of metadata is mapped into modality:
 * the kind of event -> `event.internal.rs.kind` ["span:defined", "span:enter",
   "span:exit" ]
 * `id` -> `event.internal.rs.span_id` (spans only)
+
+[^1]: The `event.name` field is almost always overridden, see next section for
+      details. 
 
 ### `tracing` Fields
 
@@ -94,6 +97,11 @@ All fields are mapped directly as is to `event.*`, except fields prefixed with
 `modality.` which are mapped to the datasource specific namespace
 `event.internal.rs.*`. Fields manually set will overwrite any any default
 values set by metadata, if present.
+
+There is a special case for `event.name` which will be overridden by the field
+`name`, but it that does not exist, will instead be overridden by the field
+`message`. If the field `message` is promoted to `name` it is recorded only as
+`name` and will not also be recorded as `message`.
 
 # License
 

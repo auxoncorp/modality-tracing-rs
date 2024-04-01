@@ -1,10 +1,10 @@
 pub mod options;
 
 use anyhow::Context;
-use modality_ingest_client::{
-    client::{BoundTimelineState, IngestClient},
-    types::{AttrKey, AttrVal, BigInt, LogicalTime, Nanoseconds, Uuid},
-    IngestError as SdkIngestError,
+use auxon_sdk::{
+    api::{AttrVal, BigInt, LogicalTime, Nanoseconds, Uuid},
+    ingest_client::{BoundTimelineState, IngestClient, IngestError as SdkIngestError},
+    ingest_protocol::InternedAttrKey,
 };
 use once_cell::sync::Lazy;
 use std::{
@@ -20,7 +20,8 @@ use tracing_serde_structured::{
 };
 use tracing_serde_wire::{Packet, TWOther, TracingWire};
 
-pub use modality_ingest_client::types::TimelineId;
+pub use auxon_sdk::api::TimelineId;
+
 pub use options::Options;
 
 // spans can be defined on any thread and then sent to another and entered/etc, track globally
@@ -50,8 +51,8 @@ pub enum IngestError {
 
 pub struct TracingModality {
     client: IngestClient<BoundTimelineState>,
-    event_keys: HashMap<String, AttrKey>,
-    timeline_keys: HashMap<String, AttrKey>,
+    event_keys: HashMap<String, InternedAttrKey>,
+    timeline_keys: HashMap<String, InternedAttrKey>,
     timeline_id: TimelineId,
 }
 
@@ -140,7 +141,7 @@ impl TracingModality {
                 packed_attrs.push((
                     self.get_or_create_event_attr_key("event.name".to_string())
                         .await?,
-                    AttrVal::String(name),
+                    AttrVal::String(name.into()),
                 ));
 
                 let kind = records
@@ -223,7 +224,7 @@ impl TracingModality {
                         packed_attrs.push((
                             self.get_or_create_event_attr_key("event.name".to_string())
                                 .await?,
-                            AttrVal::String(name),
+                            AttrVal::String(name.into()),
                         ));
                     }
                 };
@@ -231,7 +232,7 @@ impl TracingModality {
                 packed_attrs.push((
                     self.get_or_create_event_attr_key("event.internal.rs.kind".to_string())
                         .await?,
-                    AttrVal::String("span:enter".to_string()),
+                    AttrVal::String("span:enter".to_string().into()),
                 ));
 
                 packed_attrs.push((
@@ -267,7 +268,7 @@ impl TracingModality {
                         packed_attrs.push((
                             self.get_or_create_event_attr_key("event.name".to_string())
                                 .await?,
-                            AttrVal::String(name),
+                            AttrVal::String(name.into()),
                         ));
                     }
                 };
@@ -275,7 +276,7 @@ impl TracingModality {
                 packed_attrs.push((
                     self.get_or_create_event_attr_key("event.internal.rs.kind".to_string())
                         .await?,
-                    AttrVal::String("span:exit".to_string()),
+                    AttrVal::String("span:exit".to_string().into()),
                 ));
 
                 packed_attrs.push((
@@ -320,7 +321,7 @@ impl TracingModality {
                         packed_attrs.push((
                             self.get_or_create_event_attr_key("event.internal.rs.kind".to_string())
                                 .await?,
-                            AttrVal::String("message_discarded".to_string()),
+                            AttrVal::String("message_discarded".to_string().into()),
                         ));
                         self.client
                             .event(pkt.tick.into(), packed_attrs)
@@ -353,7 +354,7 @@ impl TracingModality {
                             )
                             .await?,
                             // TODO: this includes array syntax in the ID
-                            AttrVal::String(format!("{:x?}", device_id)),
+                            AttrVal::String(format!("{:x?}", device_id).into()),
                         ));
                         self.client
                             .timeline_metadata(packed_attrs)
@@ -371,14 +372,14 @@ impl TracingModality {
     async fn get_or_create_timeline_attr_key(
         &mut self,
         key: String,
-    ) -> Result<AttrKey, IngestError> {
+    ) -> Result<InternedAttrKey, IngestError> {
         if let Some(id) = self.timeline_keys.get(&key) {
             return Ok(*id);
         }
 
         let interned_key = self
             .client
-            .attr_key(key.clone())
+            .declare_attr_key(key.clone())
             .await
             .context("define timeline attr key")?;
 
@@ -387,7 +388,10 @@ impl TracingModality {
         Ok(interned_key)
     }
 
-    async fn get_or_create_event_attr_key(&mut self, key: String) -> Result<AttrKey, IngestError> {
+    async fn get_or_create_event_attr_key(
+        &mut self,
+        key: String,
+    ) -> Result<InternedAttrKey, IngestError> {
         let key = if key.starts_with("event.") {
             key
         } else {
@@ -400,7 +404,7 @@ impl TracingModality {
 
         let interned_key = self
             .client
-            .attr_key(key.clone())
+            .declare_attr_key(key.clone())
             .await
             .context("define event attr key")?;
 
@@ -411,7 +415,7 @@ impl TracingModality {
 
     async fn pack_common_attrs<'a>(
         &mut self,
-        packed_attrs: &mut Vec<(AttrKey, AttrVal)>,
+        packed_attrs: &mut Vec<(InternedAttrKey, AttrVal)>,
         metadata: SerializeMetadata<'a>,
         mut records: RecordMap<'a>,
         tick: u64,
@@ -584,17 +588,17 @@ fn tracing_value_to_attr_val<'a, V: Borrow<SerializeValue<'a>>>(value: V) -> Opt
         SerializeValue::Debug(dr) => match dr {
             // TODO: there's an opertunity here to pull out message format
             // parameters raw here instead of shipping a formatted string
-            DebugRecord::Ser(s) => AttrVal::String(s.to_string()),
-            DebugRecord::De(s) => AttrVal::String(s.to_string()),
+            DebugRecord::Ser(s) => AttrVal::String(s.to_string().into()),
+            DebugRecord::De(s) => AttrVal::String(s.to_string().into()),
         },
-        SerializeValue::Str(s) => AttrVal::String(s.to_string()),
-        SerializeValue::F64(n) => AttrVal::Float(*n),
+        SerializeValue::Str(s) => AttrVal::String(s.to_string().into()),
+        SerializeValue::F64(n) => AttrVal::Float((*n).into()),
         SerializeValue::I64(n) => AttrVal::Integer(*n),
         SerializeValue::U64(n) => BigInt::new_attr_val((*n).into()),
         SerializeValue::Bool(b) => AttrVal::Bool(*b),
         unknown_sv => {
             if let Ok(sval) = serde_json::to_string(&unknown_sv) {
-                AttrVal::String(sval)
+                AttrVal::String(sval.into())
             } else {
                 return None;
             }

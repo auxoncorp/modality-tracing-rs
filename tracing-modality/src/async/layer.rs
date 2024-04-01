@@ -28,7 +28,7 @@ impl ModalityLayer {
                 thread_timeline: ingest::current_timeline(),
             }
         });
-        static THREAD_TIMELINE_INITIALIZED: Cell<bool> = Cell::new(false);
+        static THREAD_TIMELINE_INITIALIZED: Cell<bool> =const {  Cell::new(false) };
     }
 
     /// Initialize a new `ModalityLayer`, with default options.

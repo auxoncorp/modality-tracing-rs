@@ -27,7 +27,7 @@ static START: Lazy<Instant> = Lazy::new(Instant::now);
 static GLOBAL_OPTIONS: RwLock<Option<Options>> = RwLock::new(None);
 
 thread_local! {
-    static HANDLER: LocalHandler = LocalHandler::new();
+    static HANDLER: LocalHandler = const { LocalHandler::new() };
 }
 
 struct LocalHandler(RwLock<Option<Result<TSHandler, ConnectError>>>);

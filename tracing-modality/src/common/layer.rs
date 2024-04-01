@@ -3,8 +3,8 @@ use crate::ingest::TimelineId;
 use crate::ingest;
 use crate::ingest::WrappedMessage;
 
+use auxon_sdk::api::Nanoseconds;
 use duplicate::duplicate_item;
-use modality_ingest_client::types::Nanoseconds;
 use once_cell::sync::Lazy;
 use std::time::SystemTime;
 use std::{
@@ -37,6 +37,7 @@ static NEXT_SPAN_ID: AtomicU64 = AtomicU64::new(1);
 pub(crate) struct LocalSpanId(NonZeroU64);
 
 /// A newtype to store the span's name in itself for later use.
+#[allow(dead_code)]
 #[derive(Clone, Debug)]
 pub(crate) struct SpanName(String);
 

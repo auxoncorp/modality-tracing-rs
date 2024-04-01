@@ -1,4 +1,4 @@
-use modality_ingest_client::types::AttrVal;
+use auxon_sdk::api::AttrVal;
 use std::net::SocketAddr;
 
 /// Initialization options.
@@ -51,14 +51,14 @@ impl Options {
     pub fn set_name<S: AsRef<str>>(&mut self, name: S) {
         self.metadata.push((
             "timeline.name".to_string(),
-            AttrVal::String(name.as_ref().to_string()),
+            AttrVal::String(name.as_ref().to_string().into()),
         ));
     }
     /// A chainable version of [set_name](Self::set_name).
     pub fn with_name<S: AsRef<str>>(mut self, name: S) -> Self {
         self.metadata.push((
             "timeline.name".to_string(),
-            AttrVal::String(name.as_ref().to_string()),
+            AttrVal::String(name.as_ref().to_string().into()),
         ));
         self
     }

@@ -1,17 +1,14 @@
-pub use modality_ingest_client::types::TimelineId;
+pub use auxon_sdk::api::TimelineId;
 
 use crate::{
     layer::{RecordMap, TracingValue},
     Options,
 };
 use anyhow::Context;
-use modality_ingest_client::{
-    // TODO: use old misleading name until #23 lands to not create merge conflict headache
-    protocol::InternedAttrKey as AttrKey,
-    types::{AttrVal, BigInt, LogicalTime, Nanoseconds, Uuid},
-    BoundTimelineState,
-    IngestClient,
-    IngestError as SdkIngestError,
+use auxon_sdk::{
+    api::{AttrVal, BigInt, LogicalTime, Nanoseconds, Uuid},
+    ingest_client::{BoundTimelineState, IngestClient, IngestError as SdkIngestError},
+    ingest_protocol::InternedAttrKey,
 };
 use once_cell::sync::Lazy;
 use std::{collections::HashMap, num::NonZeroU64, time::Duration};
@@ -175,8 +172,8 @@ impl ModalityIngestTaskHandle {
 pub(crate) struct ModalityIngest {
     client: IngestClient<BoundTimelineState>,
     global_metadata: Vec<(String, AttrVal)>,
-    event_keys: HashMap<String, AttrKey>,
-    timeline_keys: HashMap<String, AttrKey>,
+    event_keys: HashMap<String, InternedAttrKey>,
+    timeline_keys: HashMap<String, InternedAttrKey>,
     span_names: HashMap<NonZeroU64, String>,
 
     #[cfg(feature = "blocking")]
@@ -351,7 +348,7 @@ impl ModalityIngest {
                 packed_attrs.push((
                     self.get_or_create_event_attr_key("event.name".to_string())
                         .await?,
-                    AttrVal::String(name),
+                    AttrVal::String(name.into()),
                 ));
 
                 let kind = records
@@ -443,7 +440,7 @@ impl ModalityIngest {
                         packed_attrs.push((
                             self.get_or_create_event_attr_key("event.name".to_string())
                                 .await?,
-                            AttrVal::String(name),
+                            AttrVal::String(name.into()),
                         ));
                     }
                 };
@@ -451,7 +448,7 @@ impl ModalityIngest {
                 packed_attrs.push((
                     self.get_or_create_event_attr_key("event.internal.rs.kind".to_string())
                         .await?,
-                    AttrVal::String("span:enter".to_string()),
+                    AttrVal::String("span:enter".to_string().into()),
                 ));
 
                 packed_attrs.push((
@@ -485,7 +482,7 @@ impl ModalityIngest {
                         packed_attrs.push((
                             self.get_or_create_event_attr_key("event.name".to_string())
                                 .await?,
-                            AttrVal::String(name),
+                            AttrVal::String(name.into()),
                         ));
                     }
                 };
@@ -493,7 +490,7 @@ impl ModalityIngest {
                 packed_attrs.push((
                     self.get_or_create_event_attr_key("event.internal.rs.kind".to_string())
                         .await?,
-                    AttrVal::String("span:exit".to_string()),
+                    AttrVal::String("span:exit".to_string().into()),
                 ));
 
                 packed_attrs.push((
@@ -533,7 +530,7 @@ impl ModalityIngest {
     async fn get_or_create_timeline_attr_key(
         &mut self,
         key: String,
-    ) -> Result<AttrKey, IngestError> {
+    ) -> Result<InternedAttrKey, IngestError> {
         if let Some(id) = self.timeline_keys.get(&key) {
             return Ok(*id);
         }
@@ -549,7 +546,10 @@ impl ModalityIngest {
         Ok(interned_key)
     }
 
-    async fn get_or_create_event_attr_key(&mut self, key: String) -> Result<AttrKey, IngestError> {
+    async fn get_or_create_event_attr_key(
+        &mut self,
+        key: String,
+    ) -> Result<InternedAttrKey, IngestError> {
         let key = if key.starts_with("event.") {
             key
         } else {
@@ -573,7 +573,7 @@ impl ModalityIngest {
 
     async fn pack_common_attrs<'a>(
         &mut self,
-        packed_attrs: &mut Vec<(AttrKey, AttrVal)>,
+        packed_attrs: &mut Vec<(InternedAttrKey, AttrVal)>,
         metadata: &'a Metadata<'static>,
         mut records: RecordMap,
         tick: Duration,
